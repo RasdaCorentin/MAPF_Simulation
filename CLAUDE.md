@@ -1,106 +1,117 @@
 # CLAUDE.md
 
-> **Ce document existe pour éviter de lancer un agent Explore sur la structure de ce projet.**
-> **Il est interdit de spawner un agent Explore pour explorer ce dépôt sans demande explicite de l'utilisateur : toutes les informations nécessaires sont ici.**
+> **This document exists to avoid spawning an Explore agent on this project's structure.**
+> **Do not spawn an Explore agent to explore this repo without an explicit user request: everything needed is here.**
 
 ---
 
-## Lancer la simulation
+## Running the simulation
 
 ```bash
-python main.py        # démo random-walk (5 agents, 20 steps)
+python main.py          # random-walk demo (5 agents, 20 steps)
+python demo_pibt.py      # interactive PIBT demo (10 agents, keyboard navigation)
+python demo_pibt.py -d   # same, debug mode: terminal print, zero pygame
 ```
 
-Ouvre une fenêtre pygame bloquante. Dépendances : `requirements.txt` + pygame (`pip install pygame`).
-
-Pour une démo PIBT interactive, instancier `PIBTInteractiveRenderer` (voir `client/pibt_interactive_renderer.py`).
+Both open a blocking pygame window (except `-d`). Dependencies: `requirements.txt` + pygame (`pip install pygame`).
 
 ---
 
-## Arborescence
+## Layout
 
 ```
 .
-├── core/               — moteur pur, zéro dépendance d'affichage
-│   ├── __init__.py     — exporte Position, WorldEntity, Agent, Objective, Grid, Simulation, Coordinator
-│   ├── position.py     — Position (frozen dataclass, hashable, +)
-│   ├── entity.py       — WorldEntity (base commune, blocks_movement, appear_at)
-│   ├── agent.py        — Agent (hashable via agent_id, blocks_movement=True)
-│   ├── objective.py    — Objective (collectible, owner optionnel)
-│   ├── grid.py         — Grid (source de vérité spatiale)
-│   ├── simulation.py   — Simulation (moteur, coordinator obligatoire)
-│   └── coordinator.py  — Coordinator (ABC : plan(agents, grid) → dict[int, Position])
+├── core/                       — pure engine, zero rendering dependency
+│   ├── __init__.py             — re-exports: Position, WorldEntity, Agent, Grid,
+│   │                             Simulation, Coordinator, PriorityBasedCoordinator, PlanResult
+│   ├── entities/
+│   │   ├── position.py         — Position (frozen dataclass, hashable, +)
+│   │   ├── entity.py           — WorldEntity (base, blocks_movement, appear_at, scale)
+│   │   └── agent.py            — Agent (hashable via agent_id, blocks_movement=True)
+│   ├── environment/
+│   │   └── grid.py             — Grid (spatial source of truth)
+│   └── engine/
+│       ├── plan_result.py      — PlanResult (DTO returned by Coordinator.plan())
+│       ├── coordinator.py      — Coordinator / PriorityBasedCoordinator (ABCs)
+│       └── simulation.py       — Simulation (engine, coordinator mandatory)
 │
-├── client/             — rendu pygame, dépend uniquement de core
-│   ├── __init__.py          — exporte Renderer, PIBTRenderer, PIBTInteractiveRenderer, StepSnapshot
-│   ├── renderer.py          — Renderer (boucle pygame générique, lecture seule de Simulation)
-│   ├── pibt_renderer.py     — PIBTRenderer (étend Renderer : buts, priorités PIBT)
-│   └── pibt_interactive_renderer.py — PIBTInteractiveRenderer (historique + navigation clavier)
+├── client/                     — pygame rendering, depends only on core
+│   ├── __init__.py             — re-exports: Renderer, PIBTRenderer, PIBTInteractiveRenderer, StepSnapshot
+│   ├── renderer.py             — Renderer (generic pygame loop, read-only view of Simulation)
+│   ├── pibt_renderer.py        — PIBTRenderer (extends Renderer: goals, priorities overlay)
+│   └── pibt_interactive_renderer.py — PIBTInteractiveRenderer (history + keyboard navigation)
 │
-├── algo/               — algorithmes MAPF, dépend uniquement de core
-│   ├── __init__.py     — exporte PIBT, RandomWalkCoordinator
-│   ├── pibt.py         — PIBT : Coordinator pur (zéro pygame)
-│   └── random_walk.py  — RandomWalkCoordinator : marche aléatoire per-agent
+├── mrta/                        — Multi-Robot Task Allocation, depends only on core
+│   ├── __init__.py              — re-exports: Task, TaskState, TaskSource, Allocator, FleetManager
+│   ├── task.py                  — TaskState (enum), Task (dataclass)
+│   ├── task_source.py           — TaskSource (ABC: poll(current_step) -> list[Task])
+│   ├── allocator.py             — Allocator (ABC: allocate(pending, free, grid) -> dict[Task, Agent])
+│   └── fleet_manager.py         — FleetManager (dispatch loop: complete -> intake -> allocate)
 │
-├── diagrammes/         — sources PlantUML des diagrammes de classes + PNG générés
-└── main.py             — point d'entrée démo random-walk
+├── algo/                        — MAPF algorithms, depends on core (and mrta for allocation)
+│   ├── __init__.py              — re-exports: PIBTCoordinator, RandomWalkCoordinator,
+│   │                              RandomAllocator, KDTreeGreedyAllocator
+│   ├── coordination/
+│   │   ├── random_walk.py       — RandomWalkCoordinator: per-agent random walk
+│   │   ├── reservation_table.py — ReservationTable: per-step cell reservations
+│   │   ├── priority_manager.py  — PriorityManager: base/dynamic agent priorities
+│   │   └── pibt_coordinator.py  — PIBTCoordinator: Priority Inheritance with Backtracking
+│   └── allocation/
+│       ├── random_allocator.py         — RandomAllocator: random task/agent matching
+│       └── kdtree_greedy_allocator.py  — KDTreeGreedyAllocator: design stub (NotImplementedError)
+│
+├── diagrammes/                  — PlantUML class diagram sources + generated PNGs
+├── main.py                      — random-walk demo entry point
+└── demo_pibt.py                 — interactive PIBT demo entry point
 ```
+
+Dependency direction (strict, matches the class diagram): `mrta -> core` ; `algo -> core, mrta` ; `client -> core`.
 
 ---
 
-## Classes de `core/`
+## Classes in `core/`
 
-### `Position` — `core/position.py`
+### `Position` — `core/entities/position.py`
 ```python
 @dataclass(frozen=True)
 class Position:
     x: int
     y: int
-    def __add__(self, other: Position) -> Position  # addition vectorielle
+    def __add__(self, other: Position) -> Position  # vector addition
 ```
-Hashable (frozen). Utilisée comme clé de dict dans `Grid._agents` et `Grid._static`.
+Hashable (frozen). Used as a dict key in `Grid._agents` and `Grid._static`.
 
 ---
 
-### `WorldEntity` — `core/entity.py`
+### `WorldEntity` — `core/entities/entity.py`
 ```python
 class WorldEntity:
     entity_id:       int
     position:        Position
-    appear_at:       int   # step à partir duquel l'entité apparaît (0 = immédiat)
-    blocks_movement: bool  # True → case infranchissable pour les agents
-    active:          bool  # property : True par défaut (Objective surcharge)
+    appear_at:       int   # step at which the entity spawns (0 = immediate)
+    blocks_movement: bool  # True -> cell impassable for agents
+    scale:           int   # footprint size in cells (default 1)
+    active:          bool  # property, True by default
 ```
-Base commune à toute entité placée sur la grille. Les entités bloquantes se créent avec `WorldEntity(id, pos, blocks_movement=True)` — **pas besoin de sous-classe dédiée pour les obstacles**.
+Common base for any entity placed on the grid. Blocking obstacles are created with `WorldEntity(id, pos, blocks_movement=True)` — **no dedicated subclass needed**.
 
 ---
 
-### `Agent` — `core/agent.py`
+### `Agent` — `core/entities/agent.py`
 ```python
 class Agent(WorldEntity):
-    agent_id:    int        # alias de entity_id
+    agent_id:    int        # alias of entity_id
     steps_taken: int
-    blocks_movement = True  # (passé au super via __init__)
-    def move_to(new_position: Position)   # met à jour position + steps_taken
-    def __eq__ / __hash__                 # basés sur agent_id — hashable, utilisable comme clé
+    blocks_movement = True  # (passed to super().__init__)
+    def move_to(new_position: Position)   # updates position + steps_taken
+    def __eq__ / __hash__                 # based on agent_id — hashable, usable as a dict key
 ```
-`agent_id` est immuable → hachage stable. Utilisé comme clé dans `PIBT.priorities` et `PIBT.goals`.  
-Constructeur : `Agent(agent_id, position)` — pas de stratégie, le mouvement est délégué au `Coordinator`.
+`agent_id` is immutable -> stable hash. Used as a dict key in `PIBTCoordinator.goals` and internally in `PriorityManager`/`ReservationTable`.
+Constructor: `Agent(agent_id, position)` — no strategy of its own, movement is always delegated to the `Coordinator`.
 
 ---
 
-### `Objective` — `core/objective.py`
-```python
-class Objective(WorldEntity):
-    owner:     Agent | None  # si défini, seul cet agent peut collecter l'objectif
-    collected: bool
-    active:    bool          # property : not collected
-```
-Les objectifs avec `appear_at > 0` sont tenus dans `Simulation._pending` jusqu'au bon step.
-
----
-
-### `Grid` — `core/grid.py`
+### `Grid` — `core/environment/grid.py`
 ```python
 class Grid:
     width: int
@@ -108,19 +119,48 @@ class Grid:
     _agents: dict[Position, Agent]
     _static: dict[Position, list[WorldEntity]]
 
-    is_valid(position) → bool
-    is_blocked(position) → bool        # True si agent OU entité active blocks_movement
-    place(entity: WorldEntity)         # raise si invalide ; raise si case agent déjà prise (agents)
+    is_valid(position) -> bool
+    is_blocked(position) -> bool        # True if an agent OR an active blocking entity occupies it
+    place(entity: WorldEntity)          # raises if invalid; raises if an agent cell is already taken
     remove(entity: WorldEntity)
-    move(agent, new_position) → bool   # False si invalide ou bloqué, silencieux
-    get_agent_at(position) → Agent | None
-    get_entities_at(position, kind=None) → list[WorldEntity]   # filtre active=True sur _static
-    get_all(kind=None) → list[WorldEntity]
+    move(agent, new_position) -> bool   # False if invalid or blocked, silent otherwise
+    get_agent_at(position) -> Agent | None
+    get_entities_at(position, kind=None) -> list[WorldEntity]   # filters active=True on _static
+    get_all(kind=None) -> list[WorldEntity]
 ```
 
 ---
 
-### `Simulation` — `core/simulation.py`
+### `PlanResult` — `core/engine/plan_result.py`
+```python
+@dataclass
+class PlanResult:
+    positions:   dict[int, Position]   # agent_id -> next Position (universal contract)
+    moves:       dict[int, tuple]      # agent_id -> (from, to)     (universal contract)
+    order:       list[int]             # agent_ids in priority order   (optional diagnostic)
+    inheritance: list[tuple]           # (pusher_id, pushed_id)        (optional diagnostic)
+    priorities:  dict[int, float]      # agent_id -> priority          (optional diagnostic)
+```
+DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics, left empty outside the PIBT family. Keys are `agent_id` integers so it can cross the core -> client boundary without exposing `Agent` objects.
+
+---
+
+### `Coordinator` / `PriorityBasedCoordinator` — `core/engine/coordinator.py`
+```python
+class Coordinator(ABC):
+    @abstractmethod
+    def plan(self, agents: list[Agent], grid: Grid) -> PlanResult: ...
+    def set_goal(self, agent: Agent, target: Position) -> None: ...  # no-op default
+
+class PriorityBasedCoordinator(Coordinator):
+    @abstractmethod
+    def set_priority(self, agent: Agent, priority: float) -> None: ...
+```
+`Coordinator` is the interface for every MAPF algorithm; `set_goal` has a no-op default so goal-less coordinators (e.g. random walk) don't need to implement it. `PriorityBasedCoordinator` segregates `set_priority` for algorithms driven by priorities (interface segregation) — `FleetManager` depends on this narrower interface, `Simulation` only depends on `Coordinator`.
+
+---
+
+### `Simulation` — `core/engine/simulation.py`
 ```python
 class Simulation:
     grid:         Grid
@@ -128,168 +168,223 @@ class Simulation:
     entities:     list[WorldEntity]
     _pending:     list[WorldEntity]
     current_step: int
-    coordinator:  Coordinator   # obligatoire — pas de fallback per-agent
+    coordinator:  Coordinator   # mandatory — no per-agent fallback
 
     add_agent(agent)         # place + append
-    add_object(entity)       # append + place immédiat si appear_at <= current_step
-    step()                   # spawn pending → plan → move → collecte objectifs
+    add_object(entity)       # append + place immediately if appear_at <= current_step
+    step() -> PlanResult     # spawn pending -> plan -> move ; returns the PlanResult
 ```
 
-**Logique de `step()` :**
+**`step()` logic:**
 ```python
-# 1. Spawn entités différées
-# 2. Planification coordonnée (obligatoire)
-next_positions = self.coordinator.plan(self.agents, self.grid)
-# 3. Déplacements
-# 4. Collecte objectifs (Objective uniquement)
+# 1. Spawn deferred entities whose appear_at step has been reached
+# 2. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid)
+# 3. Apply result.positions (lift agents, move, place back)
+# 4. Return result — clients read diagnostics from it without importing algo
 ```
+Note: `step()` returning the `PlanResult` is the one deliberate deviation from the class diagram (which shows `void`) — it's how renderers get PIBT diagnostics without depending on `algo`.
 
 ---
 
-### `Coordinator` — `core/coordinator.py`
-```python
-class Coordinator(ABC):
-    @abstractmethod
-    def plan(self, agents: list[Agent], grid: Grid) -> dict[int, Position]:
-        ...  # agent_id → prochaine Position
-```
-Interface pour tout algorithme MAPF. Obligatoire dans `Simulation(grid, coordinator=mon_algo)`.
-
----
-
-## Classes de `client/`
+## Classes in `client/`
 
 ### `Renderer` — `client/renderer.py`
 ```python
 class Renderer:
     sim: Simulation
-    _caption: str = "Grid Simulation"   # surcharger dans les sous-classes
+    _caption: str = "Grid Simulation"   # override in subclasses
     def run(steps: int, pause: float = 1.0)
     def _draw(screen, font, font_sm, font_hdr, w, h)
 ```
-Rendu générique : grille, agents (cercles colorés), entités statiques (diamants/carrés). Constantes `CELL=60`, `MARGIN=36`, `AGENT_COLORS`, `OBJ_COLORS` définies dans ce fichier et importables.
+Generic rendering: grid, agents (colored circles), static entities (squares). Constants `CELL=60`, `MARGIN=36`, `AGENT_COLORS`, `OBJ_COLORS` defined here and importable. Stores the last `PlanResult` from `sim.step()` in `self._last_result` for subclasses.
 
 ### `PIBTRenderer` — `client/pibt_renderer.py`
 ```python
 class PIBTRenderer(Renderer):
-    pibt: PIBT
     _caption = "PIBT Simulation"
-    def _draw(...)   # surcharge : ajoute cases-buts (□) + priorités sur agents
+    def _draw(...)   # overridden: adds goal cells (□) + agent priorities
 ```
-Usage : `PIBTRenderer(sim, pibt).run(steps=30, pause=0.5)`. Lecture seule en avant.
+Usage: `PIBTRenderer(sim).run(steps=30, pause=0.5)`. Read-only, forward playback. Reads goals from `sim.coordinator.goals` (duck-typed public attribute — no `algo` import) and priorities from `self._last_result.priorities`.
 
 ### `PIBTInteractiveRenderer` — `client/pibt_interactive_renderer.py`
 ```python
 class PIBTInteractiveRenderer:
-    sim:  Simulation
-    pibt: PIBT
-
+    sim: Simulation
     def run(steps: int = 30, auto_ms: int = 600)
-    # pré-calcule l'historique, puis ouvre la fenêtre interactive
+    def run_debug(steps: int = 30)   # terminal print, no pygame
 
 @dataclass
 class StepSnapshot:
-    step, positions, priorities, order, moves, inheritance, objects, goals
+    step: int
+    result: PlanResult     # the step's plan (positions + diagnostics)
+    goals: dict
+    objects: list
 ```
-Usage : `PIBTInteractiveRenderer(sim, pibt).run(steps=80, auto_ms=500)`.
+Usage: `PIBTInteractiveRenderer(sim).run(steps=80, auto_ms=500)`.
 
-Commandes clavier : `Espace` pause/play · `→` avancer · `←` reculer · `Q` quitter.
+Keyboard: `Space` pause/play · `->` step forward · `<-` step back · `Q` quit.
 
-Le pied de fenêtre affiche pour chaque step l'ordre de priorité, le déplacement de chaque agent, et les héritages de priorité déclenchés. Lit `pibt._last_order`, `pibt._last_moves`, `pibt._last_inheritance`.
+The footer shows, for each step, the priority order, each agent's move, and any priority inheritances triggered — read from `snap.result` (a `PlanResult`), not from any `algo`-specific attribute.
 
 ---
 
-## Classes de `algo/`
+## Classes in `algo/`
 
-### `RandomWalkCoordinator` — `algo/random_walk.py`
+### `RandomWalkCoordinator` — `algo/coordination/random_walk.py`
 ```python
 class RandomWalkCoordinator(Coordinator):
-    def plan(agents, grid) → dict[int, Position]  # mouvement aléatoire per-agent
+    def plan(agents, grid) -> PlanResult  # per-agent random walk
 ```
-Coordinator minimal : chaque agent choisit une direction aléatoire. `Grid.move()` rejette silencieusement les positions invalides ou bloquées.
+Minimal coordinator: each agent tries random directions until it finds a valid, unblocked, not-yet-claimed cell (falls back to staying in place).
 
 ---
 
-### `PIBT` — `algo/pibt.py`
+### PIBT decomposition — `algo/coordination/`
 
-Implémente `Coordinator`. Priority Inheritance with Backtracking (Okumura 2022). **Zéro dépendance pygame** — le rendu est dans `PIBTRenderer`.
+Extract-Class decomposition of the original PIBT god-object. `PIBTCoordinator` implements `PriorityBasedCoordinator`. **Zero pygame dependency** — rendering lives in `client/`.
 
 ```python
-class PIBT(Coordinator):
-    goals:      dict[Agent, Position]   # clés = objets Agent (pas agent_id)
-    priorities: dict[Agent, float]      # clés = objets Agent (pas agent_id)
-    # état interne par step (réinitialisé dans plan())
-    _next:      dict[Agent, Position]
-    _processed: set[Agent]
-    _grid:      Grid | None
-    # suivi exposé pour PIBTRenderer
-    _last_order:       list[Agent]
-    _last_moves:       dict[Agent, tuple[Position, Position]]
-    _last_inheritance: list[tuple[Agent, Agent]]  # (pousseur, poussé)
+class ReservationTable:            # algo/coordination/reservation_table.py
+    _reserved: dict[Position, Agent]
+    reserve(agent, pos)             # releases the agent's previous reservation first
+    release(agent)                  # frees the agent's reservation (backtracking)
+    get_reserving_agent(pos) -> Agent | None
+    get_reservation(agent) -> Position | None
+    clear()
 
-    plan(agents, grid) → dict[int, Position]  # interface Coordinator
+class PriorityManager:             # algo/coordination/priority_manager.py
+    _base: dict[Agent, float]      # priorities set explicitly (initial, inheritance, goal-reached)
+    _dynamic: dict[Agent, float]   # effective priorities used to rank agents
+    update(agents)                  # inits missing agents, then decays every dynamic priority by 1
+    get_priority(agent) -> float
+    set_base(agent, p)              # writes both _base and _dynamic immediately
+
+class PIBTCoordinator(PriorityBasedCoordinator):   # algo/coordination/pibt_coordinator.py
+    goals: dict[Agent, Position]     # public — read by PIBTRenderer/PIBTInteractiveRenderer
+    _reservations: ReservationTable
+    _priorities: PriorityManager
+    _processed: set[Agent]
+    _inheritance: list[tuple[Agent, Agent]]
+
+    plan(agents, grid) -> PlanResult
+    set_goal(agent, target)
+    set_priority(agent, priority)
+    _pibt(agent, parent, grid) -> bool     # grid passed as an argument, no stored grid state
+    _h(pos, agent, grid) -> int            # Manhattan distance heuristic
 ```
 
-**Ordre de construction obligatoire** (les agents doivent exister avant PIBT) :
+**Usage** (no mandatory construction order — configure via `set_goal`/`set_priority`):
 ```python
-# 1. Créer les agents
-a0 = Agent(0, Position(0,0))
-a1 = Agent(1, Position(9,9))
+a0 = Agent(0, Position(0, 0))
+a1 = Agent(1, Position(9, 9))
 
-# 2. Créer PIBT avec les objets Agent comme clés
-goals              = {a0: Position(9,9), a1: Position(0,0)}
-initial_priorities = {a0: 5.0, a1: 3.0}   # optionnel
-pibt = PIBT(goals=goals, initial_priorities=initial_priorities)
+pibt = PIBTCoordinator()
+pibt.set_goal(a0, Position(9, 9))
+pibt.set_goal(a1, Position(0, 0))
+pibt.set_priority(a0, 5.0)   # optional — default is insertion order
 
-# 3. Simulation avec coordinator
 sim = Simulation(grid, coordinator=pibt)
 sim.add_agent(a0)
 sim.add_agent(a1)
 
-# 4. Lancer avec PIBTRenderer (affiche buts + priorités)
-PIBTRenderer(sim, pibt).run(steps=30, pause=0.5)
+PIBTRenderer(sim).run(steps=30, pause=0.5)
 ```
 
-**Mécanique interne :**
-- Priorités décrémentées à chaque step → prévient la famine
-- Agent à son but → priorité `-inf` (traité en dernier, préfère rester sur place)
-- Priority Inheritance : si agent i veut la case de k, `priorities[k] = priorities[i] + ε` et `_pibt(k, i)` récursif
-- Backtracking : si k ne peut pas se déplacer, i essaie une autre case
-- Obstacles détectés via `entity.blocks_movement and entity.active` sur les entités statiques de la grille
+**Internal mechanics:**
+- Dynamic priorities decay by 1 every step -> prevents starvation.
+- An agent at its goal gets base priority `-inf` (processed last, prefers to stay).
+- Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `_pibt(k, i, grid)` recurses.
+- Backtracking: if k cannot move, i tries another candidate cell (`ReservationTable.release`).
+- Obstacles are detected via `entity.blocks_movement and entity.active` on the grid's static entities.
 
-**Ajouter un nouveau Coordinator :**
+**Adding a new Coordinator:**
 ```python
-# dans algo/mon_algo.py
-from core.coordinator import Coordinator
+# in algo/coordination/my_algo.py
+from core import Coordinator, PlanResult
 
-class MonAlgo(Coordinator):
-    def plan(self, agents, grid) -> dict[int, Position]:
-        return {a.agent_id: ... for a in agents}
+class MyAlgo(Coordinator):
+    def plan(self, agents, grid) -> PlanResult:
+        positions = {a.agent_id: ... for a in agents}
+        return PlanResult(positions=positions, moves={...})
 ```
-Brancher dans `Simulation(grid, coordinator=MonAlgo())`. Pour un rendu spécifique, créer `client/mon_algo_renderer.py` qui étend `Renderer`.
+Plug it in via `Simulation(grid, coordinator=MyAlgo())`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
 
 ---
 
-## Règles strictes
+## Classes in `mrta/`
 
-- **`core/` ne doit jamais importer `client/` ni `algo/`** — dépendance strictement unidirectionnelle.
-- **`algo/` ne doit jamais importer `client/`** — les algorithmes sont purs, sans rendu.
-- **Modifications visuelles/affichage → `client/` uniquement.**
-- **`app/` est une ancienne version** — ne pas modifier, ne pas utiliser, ne pas importer.
-- **Diagramme à garder en sync** : après tout ajout de classe ou attribut, mettre à jour `diagram.puml` et régénérer avec `plantuml diagram.puml`.
-- **Ne jamais spawner un agent Explore** sur ce projet sans demande explicite de l'utilisateur.
+`mrta` implements Multi-Robot Task Allocation on top of `core` only — it never imports `algo` or `client`.
+
+```python
+class TaskState(Enum):             # mrta/task.py
+    PENDING, ASSIGNED, DONE
+
+class Task:                        # mrta/task.py — hashable via task_id
+    task_id: int
+    target: Position
+    priority: float
+    state: TaskState
+    assignee: Agent | None
+    created_step: int
+
+class TaskSource(ABC):             # mrta/task_source.py
+    poll(current_step) -> list[Task]
+
+class Allocator(ABC):              # mrta/allocator.py
+    allocate(pending, free, grid) -> dict[Task, Agent]
+
+class FleetManager:                # mrta/fleet_manager.py
+    source: TaskSource
+    allocator: Allocator
+    coordinator: PriorityBasedCoordinator
+
+    dispatch(agents, grid, step)   # = _complete(agents) -> _intake(step) -> _allocate(agents, grid)
+    set_priority(task_id, priority)
+    _intake(step)                  # polls source, appends new tasks
+    _allocate(agents, grid)        # matches pending tasks to free agents via allocator,
+                                    # then pushes set_goal/set_priority to the coordinator
+    _complete(agents)              # marks ASSIGNED tasks as DONE once assignee reaches target
+```
+
+The rendez-vous point between `mrta` and `algo` is the shared `PriorityBasedCoordinator` instance: `FleetManager` calls `set_goal`/`set_priority` on it, and `Simulation.step()` calls `plan()` on the very same object.
 
 ---
 
-## Contraintes de conception clés
+## Classes in `algo/allocation/`
 
-| Contrainte | Détail |
+```python
+class RandomAllocator(Allocator):          # implemented — random pending/free matching
+class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplementedError
+    _tree   # placeholder for a KD-tree spatial index (e.g. scipy.spatial.KDTree)
+    _nearest_free(task, free) -> Agent      # also a stub
+```
+`KDTreeGreedyAllocator` is intentionally unimplemented: the indexing strategy (rebuild cost per dispatch cycle, tie-breaking, distance metric on a discrete grid) needs discussion before implementation.
+
+---
+
+## Strict rules
+
+- **`core/` must never import `client/`, `algo/`, or `mrta/`** — strictly one-directional dependency.
+- **`mrta/` must never import `algo/` or `client/`** — it depends only on `core`.
+- **`algo/` must never import `client/`** — algorithms are pure, no rendering.
+- **Visual/rendering changes -> `client/` only.**
+- **`app/` is a previous version** — do not modify, use, or import it.
+- **Keep the diagram in sync**: after adding a class or attribute, update `diagrammes/diag_commente.puml` and regenerate with `plantuml diagrammes/diag_commente.puml`.
+- **Never spawn an Explore agent** on this project without an explicit user request.
+
+---
+
+## Key design constraints
+
+| Constraint | Detail |
 |---|---|
-| Un agent par case | `Grid.place()` raise, `Grid.move()` retourne False |
-| `Position` immuable | frozen dataclass, jamais muter |
-| `Agent` hashable | via `agent_id`, utilisable comme clé de dict |
-| Spawn différé | `appear_at > 0` → `_pending` jusqu'au bon step |
-| Coordinator obligatoire | `Simulation` refuse de démarrer sans coordinator |
-| Obstacle = WorldEntity | `WorldEntity(id, pos, blocks_movement=True)` suffit — pas de sous-classe |
-| Stabilité sur le but | PIBT insère `loc(i)` en tête des candidats si `loc(i) == but(i)` |
-| Algo sans rendu | `algo/` n'importe jamais pygame — tout rendu passe par `client/` |
+| One agent per cell | `Grid.place()` raises, `Grid.move()` returns False |
+| `Position` is immutable | frozen dataclass, never mutated |
+| `Agent` is hashable | via `agent_id`, usable as a dict key |
+| Deferred spawn | `appear_at > 0` -> held in `_pending` until the right step |
+| Coordinator is mandatory | `Simulation` refuses to run without one |
+| Obstacle = WorldEntity | `WorldEntity(id, pos, blocks_movement=True)` suffices — no subclass |
+| Goal stability | PIBT inserts `loc(i)` first among candidates if `loc(i) == goal(i)` |
+| Algorithms have no rendering | `algo/` never imports pygame — all rendering goes through `client/` |
+| `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
+| Interface segregation | `set_priority` lives on `PriorityBasedCoordinator`, not `Coordinator` |
