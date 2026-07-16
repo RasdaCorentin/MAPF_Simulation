@@ -17,7 +17,7 @@ Usage:
 
 from dataclasses import dataclass, field
 
-from core import Simulation, Agent, Objective
+from core import Simulation, Agent
 from algo import PIBT
 
 MUTED      = ( 90,  90, 110)
@@ -38,7 +38,7 @@ class StepSnapshot:
     order:       list = field(default_factory=list)   # [agent_id, ...] prio desc.
     moves:       dict = field(default_factory=dict)   # agent_id → (Position, Position)
     inheritance: list = field(default_factory=list)   # [(pusher_id, pushed_id), ...]
-    objects:     list = field(default_factory=list)   # [(Position, "objective"|"obstacle")]
+    objects:     list = field(default_factory=list)   # [(Position, "obstacle")]
     goals:       dict = field(default_factory=dict)   # agent_id → Position
 
 
@@ -103,11 +103,8 @@ class PIBTInteractiveRenderer:
                 print(f"  #{rank+1:2}  Agent {aid}  prio: {prio_str:>5}  {action}{inherit}")
 
         if snap.objects:
-            obj_str = "  ".join(
-                f"{'◆' if k == 'objective' else '■'}({p.x},{p.y})"
-                for p, k in snap.objects
-            )
-            print(f"  objects: {obj_str}")
+            obj_str = "  ".join(f"■({p.x},{p.y})" for p, k in snap.objects)
+            print(f"  obstacles: {obj_str}")
 
     # ── History building ──────────────────────────────────────────────────────
 
@@ -138,8 +135,7 @@ class PIBTInteractiveRenderer:
         for e in self.sim.grid.get_all():
             if isinstance(e, Agent) or not e.active:
                 continue
-            kind = "objective" if isinstance(e, Objective) else "obstacle"
-            result.append((e.position, kind))
+            result.append((e.position, "obstacle"))
         return result
 
     # ── Interactive pygame loop ───────────────────────────────────────────────
@@ -302,17 +298,10 @@ class PIBTInteractiveRenderer:
             oy = MARGIN + pos.y * CELL + CELL // 2
             color = OBJ_COLORS.get(kind, (128, 128, 128))
             r = CELL // 2 - 10
-            if kind == "objective":
-                pts = [(ox, oy - r), (ox + r, oy), (ox, oy + r), (ox - r, oy)]
-                pygame.draw.polygon(screen, color, pts)
-                pygame.draw.polygon(screen, DARK, pts, 2)
-            else:
-                pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
-                pygame.draw.rect(screen, DARK,  (ox - r, oy - r, r * 2, r * 2), 2)
-            screen.blit(
-                font_sm.render("O" if kind == "objective" else "X", True, DARK),
-                font_sm.render("O", True, DARK).get_rect(center=(ox, oy)),
-            )
+            pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
+            pygame.draw.rect(screen, DARK,  (ox - r, oy - r, r * 2, r * 2), 2)
+            lbl = font_sm.render("X", True, DARK)
+            screen.blit(lbl, lbl.get_rect(center=(ox, oy)))
 
         for aid, pos in snap.positions.items():
             cx = pos.x * CELL + CELL // 2

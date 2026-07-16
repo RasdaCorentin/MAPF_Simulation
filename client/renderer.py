@@ -1,5 +1,5 @@
 import pygame
-from core import Simulation, Agent, Objective
+from core import Simulation, Agent
 
 # Shared rendering constants (importable by PIBTRenderer)
 AGENT_COLORS = [
@@ -8,8 +8,7 @@ AGENT_COLORS = [
     (188, 189, 34),  (23, 190, 207),
 ]
 OBJ_COLORS = {
-    "objective": (255, 210, 0),
-    "obstacle":  (180,  30, 30),
+    "obstacle": (180, 30, 30),
 }
 BG_A   = (240, 244, 255)
 BG_B   = (255, 255, 255)
@@ -26,7 +25,7 @@ class Renderer:
     _caption = "Grid Simulation"
     # Longest possible header text — used to size the window so that
     # no text is clipped on small grids.
-    _header_sample = "Step 9999  |  ◆ objective   ■ obstacle  |  close to quit"
+    _header_sample = "Step 9999  |  ■ obstacle  |  close to quit"
 
     def __init__(self, simulation: Simulation) -> None:
         self.sim = simulation
@@ -82,18 +81,11 @@ class Renderer:
                 continue
             ox = obj.position.x * CELL + CELL // 2
             oy = MARGIN + obj.position.y * CELL + CELL // 2
-            is_obj = isinstance(obj, Objective)
-            color = OBJ_COLORS["objective"] if is_obj else OBJ_COLORS["obstacle"]
-            if is_obj:
-                r = CELL // 2 - 10
-                pts = [(ox, oy - r), (ox + r, oy), (ox, oy + r), (ox - r, oy)]
-                pygame.draw.polygon(screen, color, pts)
-                pygame.draw.polygon(screen, DARK, pts, 2)
-            else:
-                r = CELL // 2 - 10
-                pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
-                pygame.draw.rect(screen, DARK, (ox - r, oy - r, r * 2, r * 2), 2)
-            lbl = font_sm.render("O" if is_obj else "X", True, DARK)
+            color = OBJ_COLORS["obstacle"]
+            r = CELL // 2 - 10
+            pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
+            pygame.draw.rect(screen, DARK, (ox - r, oy - r, r * 2, r * 2), 2)
+            lbl = font_sm.render("X", True, DARK)
             screen.blit(lbl, lbl.get_rect(center=(ox, oy)))
 
         for agent in self.sim.agents:
@@ -108,7 +100,7 @@ class Renderer:
 
         step_label = "Initial" if self.sim.current_step == 0 else f"Step {self.sim.current_step}"
         hdr = font_hdr.render(
-            f"{step_label}  |  ◆ objective   ■ obstacle  |  close to quit",
+            f"{step_label}  |  ■ obstacle  |  close to quit",
             True, DARK,
         )
         screen.blit(hdr, (8, 8))

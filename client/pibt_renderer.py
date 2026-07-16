@@ -12,13 +12,13 @@ Usage:
 """
 
 import pygame
-from core import Simulation, Agent, Objective
+from core import Simulation, Agent
 from client.renderer import Renderer, AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK, CELL, MARGIN
 
 
 class PIBTRenderer(Renderer):
     _caption = "PIBT Simulation"
-    _header_sample = "Step 9999  |  PIBT  |  □ goal   ◆ objective   ■ obstacle  |  close to quit"
+    _header_sample = "Step 9999  |  PIBT  |  □ goal   ■ obstacle  |  close to quit"
 
     def __init__(self, simulation: Simulation, pibt) -> None:
         super().__init__(simulation)
@@ -48,23 +48,17 @@ class PIBTRenderer(Renderer):
             color = AGENT_COLORS[agent.agent_id % len(AGENT_COLORS)]
             pygame.draw.rect(screen, color, (gx + 4, gy + 4, CELL - 8, CELL - 8), 2)
 
-        # Static entities (objectives and generic obstacles)
+        # Static entities (obstacles)
         for obj in self.sim.grid.get_all():
             if isinstance(obj, Agent) or not obj.active:
                 continue
             ox = obj.position.x * CELL + CELL // 2
             oy = MARGIN + obj.position.y * CELL + CELL // 2
-            is_obj = isinstance(obj, Objective)
-            color = OBJ_COLORS["objective"] if is_obj else OBJ_COLORS["obstacle"]
+            color = OBJ_COLORS["obstacle"]
             r = CELL // 2 - 10
-            if is_obj:
-                pts = [(ox, oy - r), (ox + r, oy), (ox, oy + r), (ox - r, oy)]
-                pygame.draw.polygon(screen, color, pts)
-                pygame.draw.polygon(screen, DARK, pts, 2)
-            else:
-                pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
-                pygame.draw.rect(screen, DARK, (ox - r, oy - r, r * 2, r * 2), 2)
-            lbl = font_sm.render("O" if is_obj else "X", True, DARK)
+            pygame.draw.rect(screen, color, (ox - r, oy - r, r * 2, r * 2))
+            pygame.draw.rect(screen, DARK, (ox - r, oy - r, r * 2, r * 2), 2)
+            lbl = font_sm.render("X", True, DARK)
             screen.blit(lbl, lbl.get_rect(center=(ox, oy)))
 
         # Agents with priority label
@@ -85,7 +79,7 @@ class PIBTRenderer(Renderer):
         # Header
         step_label = "Initial" if self.sim.current_step == 0 else f"Step {self.sim.current_step}"
         hdr = font_hdr.render(
-            f"{step_label}  |  PIBT  |  □ goal   ◆ objective   ■ obstacle  |  close to quit",
+            f"{step_label}  |  PIBT  |  □ goal   ■ obstacle  |  close to quit",
             True, DARK,
         )
         screen.blit(hdr, (8, 8))

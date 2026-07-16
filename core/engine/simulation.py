@@ -1,7 +1,6 @@
 from ..environment.grid import Grid
 from ..entities.agent import Agent
 from ..entities.entity import WorldEntity
-from ..entities.objective import Objective
 from .coordinator import Coordinator
 
 
@@ -51,12 +50,6 @@ class Simulation:
             agent.move_to(target_pos)
             self.grid.place(agent)  # will raise cleanly if cell is already occupied
 
-        # 5. Collect objectives
-        for agent in self.agents:
-            for obj in self.grid.get_entities_at(agent.position, Objective):
-                if obj.owner is None or obj.owner is agent:
-                    obj.collected = True
-                    self.grid.remove(obj)
 
     def __repr__(self) -> str:
         return f"Simulation(grid={self.grid}, agents={len(self.agents)}, step={self.current_step})"
