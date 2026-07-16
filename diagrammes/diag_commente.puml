@@ -101,7 +101,7 @@ package "core" #EAF4FF {
             --
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
-            + step() : void
+            + step() : PlanResult
             + __repr__() : str
         }
     }
@@ -192,7 +192,9 @@ package "algo" #F0FFF0 {
             - _reserved : dict[Position, Agent]
             --
             + reserve(agent: Agent, pos: Position) : void
+            + release(agent: Agent) : void
             + get_reserving_agent(pos: Position) : Agent | None
+            + get_reservation(agent: Agent) : Position | None
             + clear() : void
         }
 
@@ -210,6 +212,7 @@ package "algo" #F0FFF0 {
             - _reservations : ReservationTable
             - _priorities   : PriorityManager
             - _processed    : set[Agent]
+            - _inheritance  : list[tuple[Agent, Agent]]
             --
             + plan(agents: list[Agent], grid: Grid) : PlanResult
             + set_goal(agent: Agent, target: Position) : void
@@ -314,6 +317,23 @@ note top of FleetManager
   3. FleetManager._complete : tâches terminées
   Point de rendez-vous = le Coordinator partagé.
   mrta ne dépend que de core (Coordinator, Task, Position).
+end note
+
+note bottom of Simulation
+  **Écart assumé vis-à-vis du diagramme simplifié**
+  step() retourne le PlanResult du step (et non void) :
+  seul moyen pour les renderers de lire les diagnostics
+  PIBT sans importer `algo` depuis `client`.
+end note
+
+note left of ReservationTable
+  **Écarts assumés vis-à-vis du diagramme simplifié**
+  release(agent) : libère la réservation d'un agent lors
+  du backtracking (candidat suivant essayé par _pibt).
+  get_reservation(agent) : lit la case réservée par un
+  agent — utilisé pour l'assemblage de PlanResult.positions
+  et pour la garde anti-récursion (σ défini ⇔ réservation
+  existante).
 end note
 
 @enduml
