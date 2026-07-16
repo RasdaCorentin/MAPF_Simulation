@@ -1,5 +1,5 @@
-"""MAPF algorithms — depend only on core (and mrta for allocation)."""
+"""MAPF algorithms — depend on core, and mrta for allocation."""
 
-from .coordination import PIBT, RandomWalkCoordinator
+from .coordination import PIBTCoordinator, RandomWalkCoordinator
 
-__all__ = ["PIBT", "RandomWalkCoordinator"]
+__all__ = ["PIBTCoordinator", "RandomWalkCoordinator"]
