@@ -1,5 +1,4 @@
-from core import Grid, Agent, WorldEntity, Simulation
-from core.position import Position
+from core import Grid, Agent, WorldEntity, Simulation, Position
 from algo import RandomWalkCoordinator
 from client import Renderer
 
