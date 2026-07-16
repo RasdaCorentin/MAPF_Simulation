@@ -1,6 +1,7 @@
-"""Simulation engine: the step loop and the coordination interface."""
+"""Simulation engine: the step loop, the coordination interface and its DTO."""
 
-from .coordinator import Coordinator
+from .plan_result import PlanResult
+from .coordinator import Coordinator, PriorityBasedCoordinator
 from .simulation import Simulation
 
-__all__ = ["Coordinator", "Simulation"]
+__all__ = ["PlanResult", "Coordinator", "PriorityBasedCoordinator", "Simulation"]

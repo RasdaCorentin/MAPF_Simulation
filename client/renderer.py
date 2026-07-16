@@ -22,15 +22,29 @@ MARGIN = 36
 
 
 class Renderer:
+    """Generic pygame renderer: grid, agents and static entities.
+
+    Reads the Simulation, never mutates it. Subclasses override
+    ``_draw`` to add algorithm-specific overlays.
+    """
+
     _caption = "Grid Simulation"
     # Longest possible header text — used to size the window so that
     # no text is clipped on small grids.
     _header_sample = "Step 9999  |  ■ obstacle  |  close to quit"
 
     def __init__(self, simulation: Simulation) -> None:
+        """Input: the simulation to display (read-only access).
+        Output: None.
+        """
         self.sim = simulation
+        # PlanResult of the last executed step (diagnostics for subclasses)
+        self._last_result = None
 
     def run(self, steps: int, pause: float = 1.0) -> None:
+        """Input: number of simulation steps and pause between frames (s).
+        Output: None. Opens a blocking pygame window.
+        """
         pause_ms = int(pause * 1000)
         pygame.init()
         font     = pygame.font.SysFont("monospace", 15, bold=True)
@@ -51,7 +65,7 @@ class Renderer:
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     return
-            self.sim.step()
+            self._last_result = self.sim.step()
             self._draw(screen, font, font_sm, font_hdr, w, h)
             pygame.time.wait(pause_ms)
 
@@ -63,6 +77,9 @@ class Renderer:
             clock.tick(30)
 
     def _draw(self, screen, font, font_sm, font_hdr, w, h) -> None:
+        """Input: pygame surface, fonts and window size.
+        Output: None. Draws the current simulation state.
+        """
         screen.fill(WHITE)
 
         for x in range(self.sim.grid.width):

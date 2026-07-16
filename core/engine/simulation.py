@@ -2,10 +2,21 @@ from ..environment.grid import Grid
 from ..entities.agent import Agent
 from ..entities.entity import WorldEntity
 from .coordinator import Coordinator
+from .plan_result import PlanResult
 
 
 class Simulation:
+    """Pure simulation engine — no rendering dependency.
+
+    Owns the grid, the agents and the world entities, and advances the
+    world one step at a time. A Coordinator is mandatory: ``step()``
+    always delegates movement planning to ``coordinator.plan()``.
+    """
+
     def __init__(self, grid: Grid, coordinator: Coordinator) -> None:
+        """Input: the grid and the (mandatory) coordination strategy.
+        Output: None.
+        """
         self.grid = grid
         self.agents: list[Agent] = []
         self.entities: list[WorldEntity] = []
@@ -14,17 +25,30 @@ class Simulation:
         self.coordinator = coordinator
 
     def add_agent(self, agent: Agent) -> None:
+        """Input: an agent (its position must be free and valid).
+        Output: None. Places the agent on the grid and registers it.
+        """
         self.grid.place(agent)
         self.agents.append(agent)
 
     def add_object(self, entity: WorldEntity) -> None:
+        """Input: a world entity (obstacle, ...).
+        Output: None. Placed immediately, or deferred until its
+        ``appear_at`` step is reached.
+        """
         self.entities.append(entity)
         if entity.appear_at <= self.current_step:
             self.grid.place(entity)
         else:
             self._pending.append(entity)
 
-    def step(self) -> None:
+    def step(self) -> PlanResult:
+        """Input: none.
+        Output: the PlanResult of this step (returned so that clients can
+        display planning diagnostics without depending on the algorithm).
+        Advances the world by one step: spawn pending entities, plan,
+        then apply the planned moves.
+        """
         self.current_step += 1
 
         # 1. Spawn pending entities whose appear_at step has been reached
@@ -34,13 +58,13 @@ class Simulation:
             self._pending.remove(entity)
 
         # 2. Coordinator computes all next positions (global plan)
-        next_positions = self.coordinator.plan(self.agents, self.grid)
+        result = self.coordinator.plan(self.agents, self.grid)
 
         # 3. Lift phase: remove moving agents from the grid first
         # so they do not artificially block each other
         moving_agents = []
         for agent in self.agents:
-            target_pos = next_positions.get(agent.agent_id, agent.position)
+            target_pos = result.positions.get(agent.agent_id, agent.position)
             if target_pos != agent.position:
                 moving_agents.append((agent, target_pos))
                 self.grid.remove(agent)  # agent leaves its current cell
@@ -50,6 +74,8 @@ class Simulation:
             agent.move_to(target_pos)
             self.grid.place(agent)  # will raise cleanly if cell is already occupied
 
+        return result
 
     def __repr__(self) -> str:
+        """Input: none. Output: short human-readable state summary."""
         return f"Simulation(grid={self.grid}, agents={len(self.agents)}, step={self.current_step})"

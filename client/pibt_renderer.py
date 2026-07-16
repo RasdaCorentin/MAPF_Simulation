@@ -1,14 +1,18 @@
 """
-PIBTRenderer — specialised pygame renderer for the PIBT coordinator.
+PIBTRenderer — specialised pygame renderer for a PIBT-like coordinator.
 
 Extends Renderer by adding:
   - goal cells for each agent (coloured square border)
   - current priority displayed on each agent
   - PIBT legend in the header
 
+Goals are read from ``sim.coordinator.goals`` (public attribute of the
+coordinator) and priorities from the PlanResult returned by each
+``sim.step()`` call — no dependency on the algo package.
+
 Usage:
     from client import PIBTRenderer
-    PIBTRenderer(sim, pibt).run(steps=30, pause=0.5)
+    PIBTRenderer(sim).run(steps=30, pause=0.5)
 """
 
 import pygame
@@ -17,14 +21,22 @@ from client.renderer import Renderer, AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID
 
 
 class PIBTRenderer(Renderer):
+    """Read-only, forward-playing renderer with PIBT goal/priority overlays."""
+
     _caption = "PIBT Simulation"
     _header_sample = "Step 9999  |  PIBT  |  □ goal   ■ obstacle  |  close to quit"
 
-    def __init__(self, simulation: Simulation, pibt) -> None:
+    def __init__(self, simulation: Simulation) -> None:
+        """Input: the simulation to display (its coordinator is expected
+        to expose a public ``goals`` dict[Agent, Position]).
+        Output: None.
+        """
         super().__init__(simulation)
-        self.pibt = pibt
 
     def _draw(self, screen, font, font_sm, font_hdr, w, h) -> None:
+        """Input: pygame surface, fonts and window size.
+        Output: None. Draws grid, goals, obstacles, agents + priorities.
+        """
         screen.fill(WHITE)
 
         # Checkerboard background + grid lines
@@ -39,8 +51,9 @@ class PIBTRenderer(Renderer):
             pygame.draw.line(screen, GRID_C, (0, MARGIN + y * CELL), (grid_w, MARGIN + y * CELL))
 
         # Goal cells (coloured square border)
+        goals = getattr(self.sim.coordinator, "goals", {})
         for agent in self.sim.agents:
-            goal = self.pibt.goals.get(agent)
+            goal = goals.get(agent)
             if goal is None:
                 continue
             gx = goal.x * CELL
@@ -61,7 +74,8 @@ class PIBTRenderer(Renderer):
             lbl = font_sm.render("X", True, DARK)
             screen.blit(lbl, lbl.get_rect(center=(ox, oy)))
 
-        # Agents with priority label
+        # Agents with priority label (from the last PlanResult)
+        priorities = self._last_result.priorities if self._last_result else {}
         for agent in self.sim.agents:
             cx = agent.position.x * CELL + CELL // 2
             cy = MARGIN + agent.position.y * CELL + CELL // 2
@@ -71,10 +85,11 @@ class PIBTRenderer(Renderer):
                 pygame.draw.circle(screen, BLACK, (cx, cy), CELL // 2 - 16, 2)
             lbl = font.render(str(agent.agent_id), True, WHITE)
             screen.blit(lbl, lbl.get_rect(center=(cx, cy)))
-            prio = self.pibt.priorities.get(agent, 0)
-            prio_str = "−∞" if prio == float("-inf") else f"{prio:.0f}"
-            p_lbl = font_sm.render(prio_str, True, DARK)
-            screen.blit(p_lbl, (agent.position.x * CELL + 2, MARGIN + agent.position.y * CELL + 2))
+            prio = priorities.get(agent.agent_id)
+            if prio is not None:
+                prio_str = "−∞" if prio == float("-inf") else f"{prio:.0f}"
+                p_lbl = font_sm.render(prio_str, True, DARK)
+                screen.blit(p_lbl, (agent.position.x * CELL + 2, MARGIN + agent.position.y * CELL + 2))
 
         # Header
         step_label = "Initial" if self.sim.current_step == 0 else f"Step {self.sim.current_step}"

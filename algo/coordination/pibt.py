@@ -10,19 +10,16 @@ Usage via coordinator hook:
     pibt = PIBT(goals=goals, initial_priorities=initial_priorities)
     sim  = Simulation(grid, coordinator=pibt)
     sim.add_agent(a0); sim.add_agent(a1)
-    pibt.run(sim, steps=30, pause=0.5)
 
-After each plan(), tracking attributes are available for external rendering:
-    pibt._last_order       : list[Agent]                        — agents in priority order
-    pibt._last_moves       : dict[Agent, (Position, Position)]  — (before, after) per agent
-    pibt._last_inheritance : list[(Agent, Agent)]               — (pusher, pushed) successful inheritances
+plan() returns a PlanResult DTO carrying next positions plus PIBT
+diagnostics (priority order, moves, priority inheritances).
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from core import Position, Coordinator, Agent, Grid
+from core import Position, Coordinator, Agent, Grid, PlanResult
 
 DIRS    = [Position(0, -1), Position(0, 1), Position(-1, 0), Position(1, 0)]
 EPSILON = 1e-3
@@ -59,10 +56,8 @@ class PIBT(Coordinator):
         self._processed: set[Agent]            = set()
         self._grid:      Optional[Grid]        = None
 
-        # Tracking exposed to renderers — updated at each plan()
-        self._last_order:       list[Agent]                          = []
-        self._last_moves:       dict[Agent, tuple[Position, Position]] = {}
-        self._last_inheritance: list[tuple[Agent, Agent]]            = []
+        # Per-step diagnostics, reported through PlanResult
+        self._inheritance: list[tuple[Agent, Agent]] = []
 
     def _init_priorities_if_needed(self, agents: list[Agent]) -> None:
         for i, agent in enumerate(agents):
@@ -133,7 +128,7 @@ class PIBT(Coordinator):
                     del self._next[agent]
                     continue
                 self._processed.add(occupant)
-                self._last_inheritance.append((agent, occupant))
+                self._inheritance.append((agent, occupant))
                 return True
 
             if occupant is None or occupant in self._next:
@@ -145,8 +140,11 @@ class PIBT(Coordinator):
 
     # ── Interface Coordinator ─────────────────────────────────────────────────
 
-    def plan(self, agents: list[Agent], grid: Grid) -> dict[int, Position]:
-        """Computes next positions for all agents (one coordinated pass)."""
+    def plan(self, agents: list[Agent], grid: Grid) -> PlanResult:
+        """Input: all simulated agents and the grid (read-only).
+        Output: a PlanResult with next positions plus PIBT diagnostics
+        (priority order, moves, priority inheritances, priorities).
+        """
         self._grid = grid
         self._init_priorities_if_needed(agents)
 
@@ -159,17 +157,21 @@ class PIBT(Coordinator):
 
         self._next.clear()
         self._processed.clear()
-        self._last_inheritance.clear()
+        self._inheritance.clear()
 
         ordered = sorted(agents, key=lambda a: -self.priorities[a])
-        self._last_order = list(ordered)
 
         for agent in ordered:
             if agent not in self._processed:
                 self._pibt(agent, None)
                 self._processed.add(agent)
 
-        result = {a.agent_id: self._next.get(a, a.position) for a in agents}
-        self._last_moves = {a: (a.position, result[a.agent_id]) for a in agents}
-        return result
+        positions = {a.agent_id: self._next.get(a, a.position) for a in agents}
+        return PlanResult(
+            positions=positions,
+            moves={a.agent_id: (a.position, positions[a.agent_id]) for a in agents},
+            order=[a.agent_id for a in ordered],
+            inheritance=[(p.agent_id, q.agent_id) for p, q in self._inheritance],
+            priorities={a.agent_id: self.priorities[a] for a in agents},
+        )
 

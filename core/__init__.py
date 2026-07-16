@@ -2,9 +2,10 @@
 
 from .entities import Position, WorldEntity, Agent
 from .environment import Grid
-from .engine import Coordinator, Simulation
+from .engine import Coordinator, PriorityBasedCoordinator, PlanResult, Simulation
 
 __all__ = [
     "Position", "WorldEntity", "Agent",
-    "Grid", "Simulation", "Coordinator",
+    "Grid", "Simulation",
+    "Coordinator", "PriorityBasedCoordinator", "PlanResult",
 ]
