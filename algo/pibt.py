@@ -22,10 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core.position import Position
-from core.coordinator import Coordinator
-from core.agent import Agent
-from core.grid import Grid
+from core import Position, Coordinator, Agent, Grid
 
 DIRS    = [Position(0, -1), Position(0, 1), Position(-1, 0), Position(1, 0)]
 EPSILON = 1e-3

@@ -1,7 +1,5 @@
 import pygame
-from core.simulation import Simulation
-from core.agent import Agent
-from core.objective import Objective
+from core import Simulation, Agent, Objective
 
 # Shared rendering constants (importable by PIBTRenderer)
 AGENT_COLORS = [

@@ -12,9 +12,7 @@ Usage:
 """
 
 import pygame
-from core.simulation import Simulation
-from core.agent import Agent
-from core.objective import Objective
+from core import Simulation, Agent, Objective
 from client.renderer import Renderer, AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK, CELL, MARGIN
 
 

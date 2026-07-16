@@ -1,7 +1,7 @@
 from typing import Optional, Type, TypeVar
-from .position import Position
-from .entity import WorldEntity
-from .agent import Agent
+from ..entities.position import Position
+from ..entities.entity import WorldEntity
+from ..entities.agent import Agent
 
 E = TypeVar("E", bound=WorldEntity)
 

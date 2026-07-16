@@ -1,7 +1,7 @@
-from .grid import Grid
-from .agent import Agent
-from .entity import WorldEntity
-from .objective import Objective
+from ..environment.grid import Grid
+from ..entities.agent import Agent
+from ..entities.entity import WorldEntity
+from ..entities.objective import Objective
 from .coordinator import Coordinator
 
 

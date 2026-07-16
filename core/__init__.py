@@ -1,10 +1,8 @@
-from .position import Position
-from .entity import WorldEntity
-from .agent import Agent
-from .objective import Objective
-from .grid import Grid
-from .simulation import Simulation
-from .coordinator import Coordinator
+"""Pure simulation engine — no rendering or algorithm dependencies."""
+
+from .entities import Position, WorldEntity, Agent, Objective
+from .environment import Grid
+from .engine import Coordinator, Simulation
 
 __all__ = [
     "Position", "WorldEntity", "Agent", "Objective",

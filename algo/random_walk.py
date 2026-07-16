@@ -1,8 +1,5 @@
 import random
-from core.coordinator import Coordinator
-from core.position import Position
-from core.agent import Agent
-from core.grid import Grid
+from core import Coordinator, Position, Agent, Grid
 
 DIRECTIONS = [Position(0, 1), Position(0, -1), Position(-1, 0), Position(1, 0)]
 

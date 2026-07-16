@@ -17,9 +17,7 @@ Usage:
 
 from dataclasses import dataclass, field
 
-from core.simulation import Simulation
-from core.agent import Agent
-from core.objective import Objective
+from core import Simulation, Agent, Objective
 from algo.pibt import PIBT
 
 MUTED      = ( 90,  90, 110)

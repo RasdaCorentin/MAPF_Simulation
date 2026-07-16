@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .agent import Agent
-    from .grid import Grid
-    from .position import Position
+    from ..entities.agent import Agent
+    from ..environment.grid import Grid
+    from ..entities.position import Position
 
 
 class Coordinator(ABC):
