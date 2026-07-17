@@ -1,15 +1,16 @@
-from core import Agent, Grid, PriorityBasedCoordinator
+from core import Agent, Grid, PriorityBasedCoordinator, Dispatcher
 
 from .task import Task, TaskState
 from .task_source import TaskSource
 from .allocator import Allocator
 
 
-class FleetManager:
+class FleetManager(Dispatcher):
     """Control loop bridging task sources, allocation and coordination.
 
-    Each dispatch cycle: complete finished tasks, poll for new ones,
-    then allocate pending tasks to free agents and push the resulting
+    Concrete ``Dispatcher``: Simulation.step() calls ``dispatch()`` before
+    planning. Each cycle completes finished tasks, polls for new ones, then
+    allocates pending tasks to free agents and pushes the resulting
     goals/priorities onto the coordinator shared with the Simulation.
     """
 

@@ -1,7 +1,10 @@
+from typing import Optional
+
 from ..environment.grid import Grid
 from ..entities.agent import Agent
 from ..entities.entity import WorldEntity
 from .coordinator import Coordinator
+from .dispatcher import Dispatcher
 from .plan_result import PlanResult
 
 
@@ -10,11 +13,19 @@ class Simulation:
 
     Owns the grid, the agents and the world entities, and advances the
     world one step at a time. A Coordinator is mandatory: ``step()``
-    always delegates movement planning to ``coordinator.plan()``.
+    always delegates movement planning to ``coordinator.plan()``. An
+    optional Dispatcher (e.g. a FleetManager) is run at the start of each
+    step, before planning, so the coordinator's goals are always current.
     """
 
-    def __init__(self, grid: Grid, coordinator: Coordinator) -> None:
-        """Input: the grid and the (mandatory) coordination strategy.
+    def __init__(
+        self,
+        grid: Grid,
+        coordinator: Coordinator,
+        dispatcher: Optional[Dispatcher] = None,
+    ) -> None:
+        """Input: the grid, the (mandatory) coordination strategy, and an
+        optional dispatcher run before planning each step.
         Output: None.
         """
         self.grid = grid
@@ -23,6 +34,7 @@ class Simulation:
         self._pending: list[WorldEntity] = []
         self.current_step = 0
         self.coordinator = coordinator
+        self.dispatcher = dispatcher
 
     def add_agent(self, agent: Agent) -> None:
         """Input: an agent (its position must be free and valid).
@@ -46,8 +58,8 @@ class Simulation:
         """Input: none.
         Output: the PlanResult of this step (returned so that clients can
         display planning diagnostics without depending on the algorithm).
-        Advances the world by one step: spawn pending entities, plan,
-        then apply the planned moves.
+        Advances the world by one step: spawn pending entities, dispatch
+        tasks (if a dispatcher is attached), plan, then apply the moves.
         """
         self.current_step += 1
 
@@ -57,10 +69,14 @@ class Simulation:
             self.grid.place(entity)
             self._pending.remove(entity)
 
-        # 2. Coordinator computes all next positions (global plan)
+        # 2. Dispatch tasks before planning so goals are never stale
+        if self.dispatcher is not None:
+            self.dispatcher.dispatch(self.agents, self.grid, self.current_step)
+
+        # 3. Coordinator computes all next positions (global plan)
         result = self.coordinator.plan(self.agents, self.grid)
 
-        # 3. Lift phase: remove moving agents from the grid first
+        # 4. Lift phase: remove moving agents from the grid first
         # so they do not artificially block each other
         moving_agents = []
         for agent in self.agents:
@@ -69,7 +85,7 @@ class Simulation:
                 moving_agents.append((agent, target_pos))
                 self.grid.remove(agent)  # agent leaves its current cell
 
-        # 4. Place phase: apply movement and put agents back on the grid
+        # 5. Place phase: apply movement and put agents back on the grid
         for agent, target_pos in moving_agents:
             agent.move_to(target_pos)
             self.grid.place(agent)  # will raise cleanly if cell is already occupied
