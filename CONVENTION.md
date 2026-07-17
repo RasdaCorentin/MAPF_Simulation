@@ -70,7 +70,7 @@ verification performed.
 Examples:
 
 ```
-feat(algo): add allocation subpackage with RandomAllocator
+feat(core): add scale attribute to WorldEntity
 fix: repair main.py import broken by the core subpackage split
 docs: rewrite README for the current architecture
 refactor(core)!: remove Objective entity
