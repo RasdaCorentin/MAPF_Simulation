@@ -4,12 +4,13 @@ A small **Multi-Agent Path Finding (MAPF)** simulator with a pluggable coordinat
 interface and an interactive `pygame` viewer. The flagship coordinator implements
 **PIBT** (Priority Inheritance with Backtracking).
 
-![Class diagram](simulation_class_diagram.png)
+![Class diagram](diagrammes/simulation_class_diagram_commente.png)
 
 ## Inspiration & attribution
 
-The PIBT coordinator in [`algo/pibt.py`](algo/pibt.py) is an **independent
-reimplementation** inspired by the work of **Okumura et al.**:
+The PIBT coordinator in
+[`algo/coordination/pibt_coordinator.py`](algo/coordination/pibt_coordinator.py) is an
+**independent reimplementation** inspired by the work of **Okumura et al.**:
 
 > Keisuke Okumura, Manao Machida, Xavier Défago, Yasumasa Tamura.
 > *"Priority Inheritance with Backtracking for Iterative Multi-Agent Path Finding."*
@@ -22,11 +23,14 @@ original authors.
 ## Features
 
 - **Pure simulation core** (`core/`) with zero rendering dependency.
-- **Pluggable `Coordinator` interface** — drop in any MAPF algorithm.
+- **Pluggable `Coordinator` interface** — drop in any MAPF algorithm; every `plan()`
+  returns a uniform `PlanResult` DTO.
 - Two coordinators provided: **PIBT** and a minimal **random walk**.
+- **Task allocation** (`mrta/`): tasks, a task source, an allocator interface and a
+  fleet manager that dispatches goals to the shared coordinator.
 - **Interactive step-by-step viewer**: priority order, per-agent moves, and
   priority-inheritance chains shown live, with free back/forward navigation.
-- Deferred spawns, impassable obstacles, and collectible objectives.
+- Deferred spawns and impassable obstacles.
 
 ## Requirements
 
@@ -48,9 +52,9 @@ pip install -r requirements.txt
 Run from the repository root:
 
 ```bash
-python demo.py        # interactive PIBT demo (5×5 grid, navigable)
-python demo.py -d     # terminal debug mode — prints each step, no pygame window
-python main.py        # random-walk demo (10×10 grid)
+python demo_pibt.py       # interactive PIBT demo (5×5 grid, navigable)
+python demo_pibt.py -d    # terminal debug mode — prints each step, no pygame window
+python main.py            # random-walk demo (10×10 grid)
 ```
 
 ### Interactive controls
@@ -65,32 +69,37 @@ python main.py        # random-walk demo (10×10 grid)
 ## Project structure
 
 ```
-core/      pure simulation engine (Position, Agent, Grid, Simulation, Coordinator, …)
-algo/      MAPF algorithms (pibt.py, random_walk.py) — depends only on core/
-client/    pygame rendering — depends only on core/
-demo.py    interactive PIBT entry point
-main.py    random-walk entry point
+core/      pure simulation engine — entities/ (Position, WorldEntity, Agent),
+           environment/ (Grid), engine/ (Simulation, Coordinator, PlanResult)
+algo/      MAPF algorithms — coordination/ (PIBT, random walk), allocation/
+mrta/      Multi-Robot Task Allocation (Task, TaskSource, Allocator, FleetManager)
+client/    pygame rendering
+diagrammes/ PlantUML class diagram sources + generated PNGs
+demo_pibt.py interactive PIBT entry point
+main.py     random-walk entry point
 ```
 
-Dependencies are strictly one-directional: `core/` never imports `algo/` or
-`client/`, and `algo/` never imports `client/`. See [`CLAUDE.md`](CLAUDE.md) for the
-full architecture and contributor notes.
+Dependencies are strictly one-directional: `mrta → core`, `algo → core, mrta`,
+`client → core`. `core/` never imports the others. See [`GUIDE.md`](GUIDE.md) for a
+human tour of the project and [`AGENT.md`](AGENT.md) for the full architecture reference.
 
 ## Adding your own algorithm
 
-Subclass `Coordinator` and implement `plan()`:
+Subclass `Coordinator` and implement `plan()`, returning a `PlanResult`:
 
 ```python
-from core.coordinator import Coordinator
+from core import Coordinator, PlanResult
 
 class MyAlgo(Coordinator):
-    def plan(self, agents, grid):
-        # return {agent_id: next_Position, ...}
-        return {a.agent_id: a.position for a in agents}
+    def plan(self, agents, grid) -> PlanResult:
+        positions = {a.agent_id: a.position for a in agents}   # your logic here
+        moves = {a.agent_id: (a.position, positions[a.agent_id]) for a in agents}
+        return PlanResult(positions=positions, moves=moves)
 ```
 
 Then wire it in: `Simulation(grid, coordinator=MyAlgo())`. See
-[`algo/random_walk.py`](algo/random_walk.py) for a minimal working example.
+[`algo/coordination/random_walk.py`](algo/coordination/random_walk.py) for a minimal
+working example.
 
 ## License
 
