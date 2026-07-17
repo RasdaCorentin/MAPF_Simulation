@@ -23,7 +23,7 @@ Both open a blocking pygame window (except `-d`). Dependencies: `requirements.tx
 .
 ├── core/                       — pure engine, zero rendering dependency
 │   ├── __init__.py             — re-exports: Position, WorldEntity, Agent, Grid, Simulation,
-│   │                             Coordinator, PriorityBasedCoordinator, PlanResult, Dispatcher
+│   │                             Coordinator, PlanResult, DispatchIntent, Dispatcher, StaticDispatcher
 │   ├── entities/
 │   │   ├── position.py         — Position (frozen dataclass, hashable, +)
 │   │   ├── entity.py           — WorldEntity (base, blocks_movement, appear_at, scale)
@@ -32,8 +32,10 @@ Both open a blocking pygame window (except `-d`). Dependencies: `requirements.tx
 │   │   └── grid.py             — Grid (spatial source of truth)
 │   └── engine/
 │       ├── plan_result.py      — PlanResult (DTO returned by Coordinator.plan())
-│       ├── coordinator.py      — Coordinator / PriorityBasedCoordinator (ABCs)
-│       ├── dispatcher.py       — Dispatcher (ABC: pre-planning hook run by Simulation.step)
+│       ├── dispatch_intent.py  — DispatchIntent (DTO of goals/priorities, consumed by plan())
+│       ├── coordinator.py      — Coordinator (ABC: plan(agents, grid, intent))
+│       ├── dispatcher.py       — Dispatcher (ABC: dispatch() -> DispatchIntent, run by Simulation.step)
+│       ├── static_dispatcher.py — StaticDispatcher (fixed intent every tick; MRTA-free scenarios)
 │       └── simulation.py       — Simulation (engine, coordinator mandatory, dispatcher optional)
 │
 ├── client/                     — pygame rendering, depends only on core
@@ -145,28 +147,38 @@ DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the con
 
 ---
 
-### `Coordinator` / `PriorityBasedCoordinator` — `core/engine/coordinator.py`
+### `DispatchIntent` — `core/engine/dispatch_intent.py`
 ```python
-class Coordinator(ABC):
-    @abstractmethod
-    def plan(self, agents: list[Agent], grid: Grid) -> PlanResult: ...
-    def set_goal(self, agent: Agent, target: Position) -> None: ...  # no-op default
-
-class PriorityBasedCoordinator(Coordinator):
-    @abstractmethod
-    def set_priority(self, agent: Agent, priority: float) -> None: ...
+@dataclass(frozen=True)
+class DispatchIntent:
+    goals:      dict[int, Position]   # agent_id -> target (absolute, this tick)
+    priorities: dict[int, float]      # agent_id -> allocation priority (optional per agent)
 ```
-`Coordinator` is the interface for every MAPF algorithm; `set_goal` has a no-op default so goal-less coordinators (e.g. random walk) don't need to implement it. `PriorityBasedCoordinator` segregates `set_priority` for algorithms driven by priorities (interface segregation) — `FleetManager` depends on this narrower interface, `Simulation` only depends on `Coordinator`.
+Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `Dispatcher`, consumed by `Coordinator.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the coordinator, which keeps allocation (`mrta`) and navigation (`algo`) decoupled and gives an auditable per-tick record.
 
 ---
 
-### `Dispatcher` — `core/engine/dispatcher.py`
+### `Coordinator` — `core/engine/coordinator.py`
+```python
+class Coordinator(ABC):
+    @abstractmethod
+    def plan(self, agents: list[Agent], grid: Grid, intent: DispatchIntent) -> PlanResult: ...
+```
+The single-method interface for every MAPF algorithm. Goals and priorities arrive only through `intent`; a priority-less coordinator (e.g. random walk) simply ignores `intent.priorities`. Any `Coordinator` can therefore be paired with any `Dispatcher`.
+
+---
+
+### `Dispatcher` / `StaticDispatcher` — `core/engine/dispatcher.py`, `static_dispatcher.py`
 ```python
 class Dispatcher(ABC):
     @abstractmethod
-    def dispatch(self, agents: list[Agent], grid: Grid, step: int) -> None: ...
+    def dispatch(self, agents: list[Agent], grid: Grid, step: int) -> DispatchIntent: ...
+
+class StaticDispatcher(Dispatcher):
+    def __init__(self, goals: dict[int, Position], priorities: dict[int, float] | None = None): ...
+    def dispatch(self, agents, grid, step) -> DispatchIntent   # same fixed intent every tick
 ```
-Pre-planning hook: `Simulation.step()` runs the dispatcher (if attached) **before** `coordinator.plan()`, so goals are never stale by construction. Living in `core` lets `Simulation` own the tick order (dispatch → plan) **without importing `mrta`** — the same dependency-inversion seam as `Coordinator`. `FleetManager` (in `mrta`) is the concrete dispatcher.
+Pre-planning hook: `Simulation.step()` runs the dispatcher (if attached) **before** `plan()` and passes the returned intent to it, so goals are never stale by construction. It never touches the coordinator. Living in `core` lets `Simulation` own the tick order (dispatch → plan) **without importing `mrta`** — the same dependency-inversion seam as `Coordinator`. `FleetManager` (`mrta`) and `StaticDispatcher` are the concrete dispatchers; use `StaticDispatcher` for fixed-goal scenarios that need no task allocation.
 
 ---
 
@@ -179,7 +191,8 @@ class Simulation:
     _pending:     list[WorldEntity]
     current_step: int
     coordinator:  Coordinator            # mandatory — no per-agent fallback
-    dispatcher:   Dispatcher | None       # optional — run before planning each step
+    dispatcher:   Dispatcher | None       # optional — produces this tick's intent
+    last_intent:  DispatchIntent          # the intent used by the last step (auditable)
 
     __init__(grid, coordinator, dispatcher=None)
     add_agent(agent)         # place + append
@@ -190,8 +203,8 @@ class Simulation:
 **`step()` logic:**
 ```python
 # 1. Spawn deferred entities whose appear_at step has been reached
-# 2. Dispatch tasks (if a dispatcher is attached): self.dispatcher.dispatch(agents, grid, current_step)
-# 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid)
+# 2. Dispatch: intent = self.dispatcher.dispatch(...) if dispatcher else DispatchIntent()  (empty)
+# 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid, intent)
 # 4. Apply result.positions (lift agents, move, place back)
 # 5. Return result — clients read diagnostics from it without importing algo
 ```
@@ -248,7 +261,7 @@ The footer shows, for each step, the priority order, each agent's move, and any 
 ### `RandomWalkCoordinator` — `algo/coordination/random_walk.py`
 ```python
 class RandomWalkCoordinator(Coordinator):
-    def plan(agents, grid) -> PlanResult  # per-agent random walk
+    def plan(agents, grid, intent) -> PlanResult  # per-agent random walk; ignores intent
 ```
 Minimal coordinator: each agent tries random directions until it finds a valid, unblocked, not-yet-claimed cell (falls back to staying in place).
 
@@ -256,7 +269,7 @@ Minimal coordinator: each agent tries random directions until it finds a valid, 
 
 ### PIBT decomposition — `algo/coordination/`
 
-PIBT is split across three classes: `PIBTCoordinator` holds the algorithm, while reservations and priorities each live in their own class (`ReservationTable`, `PriorityManager`). `PIBTCoordinator` implements `PriorityBasedCoordinator`. **Zero pygame dependency** — rendering lives in `client/`.
+PIBT is split across three classes: `PIBTCoordinator` holds the algorithm, while reservations and priorities each live in their own class (`ReservationTable`, `PriorityManager`). `PIBTCoordinator` implements `Coordinator`. **Zero pygame dependency** — rendering lives in `client/`.
 
 ```python
 class ReservationTable:            # algo/coordination/reservation_table.py
@@ -268,37 +281,37 @@ class ReservationTable:            # algo/coordination/reservation_table.py
     clear()
 
 class PriorityManager:             # algo/coordination/priority_manager.py
-    _base: dict[Agent, float]      # priorities set explicitly (initial, inheritance, goal-reached)
+    _base: dict[Agent, float]      # priorities set explicitly (intent re-seed, inheritance, goal-reached)
     _dynamic: dict[Agent, float]   # effective priorities used to rank agents
     update(agents)                  # inits missing agents, then decays every dynamic priority by 1
     get_priority(agent) -> float
     set_base(agent, p)              # writes both _base and _dynamic immediately
 
-class PIBTCoordinator(PriorityBasedCoordinator):   # algo/coordination/pibt_coordinator.py
-    goals: dict[Agent, Position]     # public — read by PIBTRenderer/PIBTInteractiveRenderer
+class PIBTCoordinator(Coordinator):   # algo/coordination/pibt_coordinator.py
+    goals: dict[Agent, Position]     # public — rebuilt each tick from the intent; read by renderers
     _reservations: ReservationTable
     _priorities: PriorityManager
     _processed: set[Agent]
     _inheritance: list[tuple[Agent, Agent]]
+    _last_intent: dict[int, tuple]   # last (goal, priority) per agent — for the re-seed guard
 
-    plan(agents, grid) -> PlanResult
-    set_goal(agent, target)
-    set_priority(agent, priority)
+    plan(agents, grid, intent) -> PlanResult
+    _apply_intent(agents, intent)          # rebuild goals; re-seed base priority only on change
     _pibt(agent, parent, grid) -> bool     # grid passed as an argument, no stored grid state
     _h(pos, agent, grid) -> int            # Manhattan distance heuristic
 ```
 
-**Usage** (no mandatory construction order — configure via `set_goal`/`set_priority`):
+**Usage** — goals/priorities come from the intent, via a dispatcher:
 ```python
 a0 = Agent(0, Position(0, 0))
 a1 = Agent(1, Position(9, 9))
 
 pibt = PIBTCoordinator()
-pibt.set_goal(a0, Position(9, 9))
-pibt.set_goal(a1, Position(0, 0))
-pibt.set_priority(a0, 5.0)   # optional — default is insertion order
-
-sim = Simulation(grid, coordinator=pibt)
+dispatcher = StaticDispatcher(
+    goals={0: Position(9, 9), 1: Position(0, 0)},
+    priorities={0: 5.0, 1: 3.0},          # optional
+)
+sim = Simulation(grid, coordinator=pibt, dispatcher=dispatcher)
 sim.add_agent(a0)
 sim.add_agent(a1)
 
@@ -306,6 +319,8 @@ PIBTRenderer(sim).run(steps=30, pause=0.5)
 ```
 
 **Internal mechanics:**
+- Goals are rebuilt each tick from `intent.goals` (an agent with no goal stays in place).
+- **Re-seed guard**: the base priority is re-seeded from `intent.priorities` **only** when an agent's goal or business priority changed since last tick — otherwise the dynamic priority drift (anti-starvation) would be wiped. This is the crux of keeping the coordinator stateless about allocation while stateful about navigation.
 - Dynamic priorities decay by 1 every step -> prevents starvation.
 - An agent at its goal gets base priority `-inf` (processed last, prefers to stay).
 - Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `_pibt(k, i, grid)` recurses.
@@ -318,11 +333,11 @@ PIBTRenderer(sim).run(steps=30, pause=0.5)
 from core import Coordinator, PlanResult
 
 class MyAlgo(Coordinator):
-    def plan(self, agents, grid) -> PlanResult:
-        positions = {a.agent_id: ... for a in agents}
+    def plan(self, agents, grid, intent) -> PlanResult:
+        positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
         return PlanResult(positions=positions, moves={...})
 ```
-Plug it in via `Simulation(grid, coordinator=MyAlgo())`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
+Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
 
 ---
 
@@ -351,17 +366,17 @@ class Allocator(ABC):              # mrta/allocator.py
 class FleetManager(Dispatcher):    # mrta/fleet_manager.py — concrete Dispatcher
     source: TaskSource
     allocator: Allocator
-    coordinator: PriorityBasedCoordinator
+    tasks: list[Task]
 
-    dispatch(agents, grid, step)   # = _complete(agents) -> _intake(step) -> _allocate(agents, grid)
+    dispatch(agents, grid, step) -> DispatchIntent  # _complete -> _intake -> _allocate -> _build_intent
     set_priority(task_id, priority)
     _intake(step)                  # polls source, appends new tasks
-    _allocate(agents, grid)        # matches pending tasks to free agents via allocator,
-                                    # then pushes set_goal/set_priority to the coordinator
+    _allocate(agents, grid)        # matches pending tasks to free agents via allocator
     _complete(agents)              # marks ASSIGNED tasks as DONE once assignee reaches target
+    _build_intent() -> DispatchIntent  # goals/priorities of the ASSIGNED tasks
 ```
 
-The rendez-vous point between `mrta` and `algo` is the shared `PriorityBasedCoordinator` instance: `FleetManager` calls `set_goal`/`set_priority` on it, and `Simulation.step()` calls `plan()` on the very same object. Because `FleetManager` is a `Dispatcher`, `Simulation` owns the ordering: pass the fleet as `Simulation(grid, coordinator, dispatcher=fleet)` and `step()` runs `dispatch()` before `plan()` on every tick — the caller no longer sequences them by hand.
+`FleetManager` holds **no coordinator reference**: it is pure w.r.t. the engine. It returns a `DispatchIntent`, and `Simulation.step()` passes it to `plan()`. `Simulation` owns the ordering: `Simulation(grid, coordinator, dispatcher=fleet)` and `step()` runs `dispatch()` before `plan()` every tick — the caller no longer sequences them by hand.
 
 ---
 
@@ -383,7 +398,7 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 - **`mrta/` must never import `algo/` or `client/`** — it depends only on `core`.
 - **`algo/` must never import `client/`** — algorithms are pure, no rendering.
 - **Visual/rendering changes -> `client/` only.**
-- **Keep the diagram in sync**: after adding a class or attribute, update `diagrammes/diag_commente.puml` and regenerate with `plantuml diagrammes/diag_commente.puml`.
+- **Keep the diagrams in sync**: after adding a class or attribute, update `diagrammes/diag_commente.puml` (class diagram) and `diagrammes/sequence_tick.puml` (one-tick sequence), and regenerate with `plantuml diagrammes/diag_commente.puml diagrammes/sequence_tick.puml`.
 
 ---
 
@@ -391,13 +406,14 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 
 | Constraint | Detail |
 |---|---|
-| One agent per cell | `Grid.place()` raises, `Grid.move()` returns False |
+| One agent per cell | `Grid.place()` raises; `Simulation.step()` lifts all movers before placing them |
 | `Position` is immutable | frozen dataclass, never mutated |
 | `Agent` is hashable | via `agent_id`, usable as a dict key |
 | Deferred spawn | `appear_at > 0` -> held in `_pending` until the right step |
-| Coordinator is mandatory | `Simulation` refuses to run without one |
+| Coordinator is mandatory | `Simulation` refuses to run without one; a dispatcher is optional |
 | Obstacle = WorldEntity | `WorldEntity(id, pos, blocks_movement=True)` suffices — no subclass |
 | Goal stability | PIBT inserts `loc(i)` first among candidates if `loc(i) == goal(i)` |
 | Algorithms have no rendering | `algo/` never imports pygame — all rendering goes through `client/` |
 | `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
-| Interface segregation | `set_priority` lives on `PriorityBasedCoordinator`, not `Coordinator` |
+| `DispatchIntent` decouples allocation from navigation | goals/priorities flow only through the intent; no external mutation of the coordinator, so any Coordinator pairs with any Dispatcher |
+| Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |

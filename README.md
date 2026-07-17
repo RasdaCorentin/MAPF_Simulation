@@ -85,19 +85,22 @@ human tour of the project and [`AGENT.md`](AGENT.md) for the full architecture r
 
 ## Adding your own algorithm
 
-Subclass `Coordinator` and implement `plan()`, returning a `PlanResult`:
+Subclass `Coordinator` and implement `plan()`, returning a `PlanResult`. Goals and
+priorities arrive through the tick's `DispatchIntent`:
 
 ```python
 from core import Coordinator, PlanResult
 
 class MyAlgo(Coordinator):
-    def plan(self, agents, grid) -> PlanResult:
-        positions = {a.agent_id: a.position for a in agents}   # your logic here
+    def plan(self, agents, grid, intent) -> PlanResult:
+        positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
         moves = {a.agent_id: (a.position, positions[a.agent_id]) for a in agents}
         return PlanResult(positions=positions, moves=moves)
 ```
 
-Then wire it in: `Simulation(grid, coordinator=MyAlgo())`. See
+Wire it in with a dispatcher that supplies the goals — a `StaticDispatcher` for fixed
+targets, or a `FleetManager` (mrta) for task allocation:
+`Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. See
 [`algo/coordination/random_walk.py`](algo/coordination/random_walk.py) for a minimal
 working example.
 
