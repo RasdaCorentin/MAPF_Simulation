@@ -265,6 +265,7 @@ PIBTInteractiveRenderer ..> StepSnapshot
 StepSnapshot *-- PlanResult
 
 Task *-- TaskState
+Allocator --o FleetManager 
 Allocator <|.. RandomAllocator
 Allocator <|.. KDTreeGreedyAllocator
 
