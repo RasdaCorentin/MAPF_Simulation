@@ -45,14 +45,6 @@ class Grid:
             if not bucket:
                 self._static.pop(entity.position, None)
 
-    def move(self, agent: Agent, new_position: Position) -> bool:
-        if not self.is_valid(new_position) or self.is_blocked(new_position):
-            return False
-        self.remove(agent)
-        agent.move_to(new_position)
-        self._agents[new_position] = agent
-        return True
-
     def get_agent_at(self, position: Position) -> Optional[Agent]:
         return self._agents.get(position)
 

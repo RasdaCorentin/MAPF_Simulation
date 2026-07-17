@@ -65,7 +65,6 @@ package "core" #EAF4FF {
             + is_blocked(position: Position) : bool
             + place(entity: WorldEntity) : void
             + remove(entity: WorldEntity) : void
-            + move(agent: Agent, new_position: Position) : bool
             + get_agent_at(position: Position) : Agent | None
             + get_entities_at(position: Position, kind) : list[WorldEntity]
             + get_all(kind) : list[WorldEntity]
