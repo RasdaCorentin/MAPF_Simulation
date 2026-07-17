@@ -2,10 +2,10 @@
 PIBTCoordinator — Priority Inheritance with Backtracking
 Okumura et al., 2022.
 
-Extract-Class decomposition of the original PIBT god-object:
-reservations -> ReservationTable, priorities -> PriorityManager. The
-recursive core (_pibt / _h) receives `grid` as an argument instead of
-storing it, so no per-step grid state lives on the coordinator.
+PIBT is split into focused classes: reservations live in
+ReservationTable, priorities in PriorityManager. The recursive core
+(_pibt / _h) receives `grid` as an argument instead of storing it, so
+no per-step grid state lives on the coordinator.
 
 Usage:
     a0 = Agent(0, Position(0, 0))
