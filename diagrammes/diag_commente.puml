@@ -1,6 +1,6 @@
 @startuml simulation_class_diagram_commente
 
-title Simulation — Diagramme de classes (commenté : contexte & design patterns)
+title Simulation — Class diagram (annotated: context & design patterns)
 
 skinparam classAttributeIconSize 0
 skinparam classFontSize 13
@@ -15,11 +15,11 @@ skinparam NoteBackgroundColor #FFFDE7
 skinparam NoteBorderColor #C9B458
 
 ' =====================================================================
-'  DÉPENDANCES ENTRE PACKAGES (DAG, sans cycle) :
+'  PACKAGE DEPENDENCIES (DAG, no cycle):
 '    mrta   -> core
-'    algo   -> core, mrta        (fournit les implémentations concrètes)
-'    client -> core              (via l'abstraction Coordinator + PlanResult)
-'  mrta n'importe JAMAIS algo ni client. client n'importe JAMAIS algo.
+'    algo   -> core, mrta        (provides the concrete implementations)
+'    client -> core              (via the Coordinator + PlanResult abstraction)
+'  mrta NEVER imports algo or client. client NEVER imports algo.
 ' =====================================================================
 
 package "core" #EAF4FF {
@@ -237,29 +237,29 @@ package "algo" #F0FFF0 {
     }
 }
 
-' ── Héritage & entités ────────────────────────────────────────────
+' ── Inheritance & entities ────────────────────────────────────────
 WorldEntity <|-- Agent
 WorldEntity "1" *-- "1" Position : position
 
-' ── Grille ────────────────────────────────────────────────────────
+' ── Grid ──────────────────────────────────────────────────────────
 Grid "1" *-- "0..*" WorldEntity : "> contain"
 
-' ── Moteur : boucle de simulation ─────────────────────────────────
+' ── Engine: simulation loop ───────────────────────────────────────
 Simulation "1" *-- "1" Grid           : grid
 Simulation "1" *-- "0..*" WorldEntity : entities
-Simulation "1" o-- "1" Coordinator    : coordinator (partagé)
+Simulation "1" o-- "1" Coordinator    : coordinator (shared)
 Coordinator ..> PlanResult : «returns»
 
-' ── Hiérarchie des coordinateurs (Strategy + raffinement) ─────────
+' ── Coordinator hierarchy (Strategy + refinement) ─────────────────
 Coordinator <|-- PriorityBasedCoordinator
-Coordinator <|.. RandomWalkCoordinator          
-PriorityBasedCoordinator <|.. PIBTCoordinator   
+Coordinator <|.. RandomWalkCoordinator
+PriorityBasedCoordinator <|.. PIBTCoordinator
 
-' ── PIBT décomposé (Extract-Class) ────────────────────────────────
+' ── PIBT decomposition (Extract-Class) ────────────────────────────
 PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
 PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
 
-' ── Client : découplé de algo, lit PlanResult ─────────────────────
+' ── Client: decoupled from algo, reads PlanResult ─────────────────
 Renderer "1" o-- "1" Simulation : sim
 Renderer ..> WorldEntity : reads
 PIBTRenderer --|> Renderer
@@ -270,70 +270,70 @@ StepSnapshot "1" *-- "1" PlanResult : result
 ' ── MRTA ──────────────────────────────────────────────────────────
 Task "1" *-- "1" TaskState : state
 
-Allocator <|.. RandomAllocator       
-Allocator <|.. KDTreeGreedyAllocator 
+Allocator <|.. RandomAllocator
+Allocator <|.. KDTreeGreedyAllocator
 
 FleetManager "1" o-- "1" TaskSource              : source
 FleetManager "1" o-- "1" Allocator               : allocator
-FleetManager "1" o-- "1" PriorityBasedCoordinator : coordinator (partagé)
+FleetManager "1" o-- "1" PriorityBasedCoordinator : coordinator (shared)
 FleetManager "1" *-- "0..*" Task                 : tasks
 
 ' =====================================================================
-'  NOTES : contexte de simulation & design patterns
+'  NOTES: simulation context & design patterns
 ' =====================================================================
 
 note bottom of PlanResult
-  **Data Transfer Object (DTO) — retour unifié de plan()**
-  Norme de comparaison inter-algorithmes :
-  • positions, moves = contrat universel (tout Coordinator)
-  • order, inheritance, priorities = diagnostics
-    optionnels (vides hors famille PIBT)
-  Traverse la frontière core→client : c'est lui qui
-  permet aux renderers de rester découplés de `algo`.
+  **Data Transfer Object (DTO) — unified return of plan()**
+  Cross-algorithm comparison standard:
+  • positions, moves = universal contract (every Coordinator)
+  • order, inheritance, priorities = optional
+    diagnostics (empty outside the PIBT family)
+  Crosses the core→client boundary: it is what keeps
+  the renderers decoupled from `algo`.
 end note
 
 note right of PriorityBasedCoordinator
   **Interface Segregation**
-  set_priority isolée ici : RandomWalk (sans priorités)
-  hérite de Coordinator sans être forcé de l'implémenter.
-  La MÊME instance PIBTCoordinator est vue comme :
-  • Coordinator            par Simulation  (plan / set_goal)
-  • PriorityBasedCoordinator par FleetManager (set_priority)
+  set_priority is isolated here: RandomWalk (no priorities)
+  inherits from Coordinator without being forced to implement it.
+  The SAME PIBTCoordinator instance is seen as:
+  • Coordinator            by Simulation  (plan / set_goal)
+  • PriorityBasedCoordinator by FleetManager (set_priority)
 end note
 
 note bottom of PIBTCoordinator
-  **Extract-Class** : l'ancien god-object PIBT éclaté.
-  Réservations -> ReservationTable
-  Priorités    -> PriorityManager
-  Le cœur (_pibt / _h) reçoit `grid` en argument
-  (aucun état de grille stocké).
+  **Extract-Class**: PIBT is split into focused classes.
+  Reservations -> ReservationTable
+  Priorities   -> PriorityManager
+  The core (_pibt / _h) receives `grid` as an argument
+  (no grid state is stored).
 end note
 
 note top of FleetManager
-  **Boucle de contrôle (contexte de simulation)** :
-  1. FleetManager.dispatch : _intake -> _allocate ->
-     set_goal / set_priority sur le coordinateur partagé
-  2. Simulation.step : coordinator.plan -> Grid.move
-  3. FleetManager._complete : tâches terminées
-  Point de rendez-vous = le Coordinator partagé.
-  mrta ne dépend que de core (Coordinator, Task, Position).
+  **Control loop (simulation context)**:
+  1. FleetManager.dispatch: _intake -> _allocate ->
+     set_goal / set_priority on the shared coordinator
+  2. Simulation.step: coordinator.plan -> Grid.move
+  3. FleetManager._complete: finished tasks
+  Rendez-vous point = the shared Coordinator.
+  mrta depends only on core (Coordinator, Task, Position).
 end note
 
 note bottom of Simulation
-  **Écart assumé vis-à-vis du diagramme simplifié**
-  step() retourne le PlanResult du step (et non void) :
-  seul moyen pour les renderers de lire les diagnostics
-  PIBT sans importer `algo` depuis `client`.
+  **Deliberate deviation from the simplified diagram**
+  step() returns the step's PlanResult (not void):
+  the only way for renderers to read PIBT diagnostics
+  without importing `algo` from `client`.
 end note
 
 note left of ReservationTable
-  **Écarts assumés vis-à-vis du diagramme simplifié**
-  release(agent) : libère la réservation d'un agent lors
-  du backtracking (candidat suivant essayé par _pibt).
-  get_reservation(agent) : lit la case réservée par un
-  agent — utilisé pour l'assemblage de PlanResult.positions
-  et pour la garde anti-récursion (σ défini ⇔ réservation
-  existante).
+  **Deliberate deviations from the simplified diagram**
+  release(agent): frees an agent's reservation during
+  backtracking (next candidate tried by _pibt).
+  get_reservation(agent): reads the cell reserved by an
+  agent — used to assemble PlanResult.positions and for
+  the anti-recursion guard (sigma defined <=> existing
+  reservation).
 end note
 
 @enduml
