@@ -90,6 +90,10 @@ package "core" #EAF4FF {
             + {abstract} set_priority(agent: Agent, priority: float) : void
         }
 
+        abstract class Dispatcher <<Strategy>> {
+            + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : void
+        }
+
         class Simulation {
             + grid         : Grid
             + agents       : list[Agent]
@@ -97,6 +101,7 @@ package "core" #EAF4FF {
             - _pending     : list[WorldEntity]
             + current_step : int
             + coordinator  : Coordinator
+            + dispatcher   : Dispatcher | None
             --
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
@@ -247,6 +252,7 @@ Grid "1" *-- "0..*" WorldEntity : "> contain"
 Simulation "1" *-- "1" Grid           : grid
 Simulation "1" *-- "0..*" WorldEntity : entities
 Simulation "1" o-- "1" Coordinator    : coordinator (shared)
+Simulation "1" o-- "0..1" Dispatcher  : dispatcher (optional)
 Coordinator ..> PlanResult : «returns»
 
 ' ── Coordinator hierarchy (Strategy + refinement) ─────────────────
@@ -272,6 +278,7 @@ Task "1" *-- "1" TaskState : state
 Allocator <|.. RandomAllocator
 Allocator <|.. KDTreeGreedyAllocator
 
+Dispatcher <|.. FleetManager
 FleetManager "1" o-- "1" TaskSource              : source
 FleetManager "1" o-- "1" Allocator               : allocator
 FleetManager "1" o-- "1" PriorityBasedCoordinator : coordinator (shared)
@@ -309,13 +316,23 @@ note bottom of PIBTCoordinator
 end note
 
 note top of FleetManager
-  **Control loop (simulation context)**:
-  1. FleetManager.dispatch: _intake -> _allocate ->
+  **Control loop — owned by Simulation.step()**:
+  1. dispatch (if a dispatcher is attached):
+     _complete -> _intake -> _allocate ->
      set_goal / set_priority on the shared coordinator
-  2. Simulation.step: coordinator.plan -> Grid.move
-  3. FleetManager._complete: finished tasks
+  2. coordinator.plan -> PlanResult
+  3. apply moves (grid.remove -> agent.move_to -> grid.place)
   Rendez-vous point = the shared Coordinator.
-  mrta depends only on core (Coordinator, Task, Position).
+  mrta depends only on core (Coordinator, Task, Position, Dispatcher).
+end note
+
+note right of Dispatcher
+  **Orchestration seam (Dependency Inversion)**
+  Pre-planning hook: Simulation.step() calls dispatch()
+  BEFORE plan(), so goals are never stale by construction.
+  Living in core lets Simulation own the tick order
+  (dispatch -> plan) WITHOUT importing mrta — exactly like
+  Coordinator. FleetManager is the concrete dispatcher.
 end note
 
 note bottom of Simulation

@@ -1,0 +1,80 @@
+@startuml sequence_tick
+
+title One simulation tick — Simulation.step() call chain
+
+skinparam SequenceMessageAlign center
+skinparam ParticipantBorderColor #4A90D9
+skinparam ParticipantBackgroundColor #EAF4FF
+skinparam ArrowColor #333333
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+
+actor Caller
+participant Simulation
+participant "fleet : FleetManager\n<<Dispatcher>>" as Fleet
+participant TaskSource
+participant Allocator
+participant "coordinator\n<<Coordinator>>" as Coord
+participant Grid
+participant Agent
+
+Caller -> Simulation : step()
+activate Simulation
+
+Simulation -> Simulation : current_step += 1
+
+== 1. Spawn deferred entities ==
+loop each pending entity whose appear_at is reached
+    Simulation -> Grid : place(entity)
+end
+
+== 2. Dispatch tasks (only if a dispatcher is attached) ==
+Simulation -> Fleet : dispatch(agents, grid, current_step)
+activate Fleet
+    Fleet -> Fleet : _complete(agents)
+    note right of Fleet
+      ASSIGNED task whose assignee
+      reached its target -> DONE
+    end note
+    Fleet -> TaskSource : poll(step)
+    TaskSource --> Fleet : new tasks
+    Fleet -> Allocator : allocate(pending, free, grid)
+    Allocator --> Fleet : {task -> agent}
+    loop each matched (task, agent)
+        Fleet -> Coord : set_goal(agent, task.target)
+        Fleet -> Coord : set_priority(agent, task.priority)
+    end
+deactivate Fleet
+
+== 3. Coordinated planning ==
+Simulation -> Coord : plan(agents, grid)
+activate Coord
+    note right of Coord
+      PIBT: decay priorities, rank agents,
+      recurse (_pibt) with inheritance +
+      backtracking, reserve next cells
+    end note
+    Coord --> Simulation : PlanResult
+deactivate Coord
+
+== 4. Apply moves (lift-then-place transaction) ==
+loop each moving agent
+    Simulation -> Grid : remove(agent)
+end
+loop each moving agent
+    Simulation -> Agent : move_to(target)
+    Simulation -> Grid : place(agent)
+end
+
+Simulation --> Caller : PlanResult
+deactivate Simulation
+
+note over Simulation, Agent
+  Movement authority: the Coordinator decides intent,
+  Simulation.step() owns the transaction, Grid + Agent are
+  state primitives. agent.move_to alone does NOT touch the
+  grid — it is only ever called between grid.remove and
+  grid.place, so the spatial index stays in sync.
+end note
+
+@enduml
