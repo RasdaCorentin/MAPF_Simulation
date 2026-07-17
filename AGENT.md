@@ -22,8 +22,8 @@ Both open a blocking pygame window (except `-d`). Dependencies: `requirements.tx
 ```
 .
 ├── core/                       — pure engine, zero rendering dependency
-│   ├── __init__.py             — re-exports: Position, WorldEntity, Agent, Grid,
-│   │                             Simulation, Coordinator, PriorityBasedCoordinator, PlanResult
+│   ├── __init__.py             — re-exports: Position, WorldEntity, Agent, Grid, Simulation,
+│   │                             Coordinator, PriorityBasedCoordinator, PlanResult, Dispatcher
 │   ├── entities/
 │   │   ├── position.py         — Position (frozen dataclass, hashable, +)
 │   │   ├── entity.py           — WorldEntity (base, blocks_movement, appear_at, scale)
@@ -33,7 +33,8 @@ Both open a blocking pygame window (except `-d`). Dependencies: `requirements.tx
 │   └── engine/
 │       ├── plan_result.py      — PlanResult (DTO returned by Coordinator.plan())
 │       ├── coordinator.py      — Coordinator / PriorityBasedCoordinator (ABCs)
-│       └── simulation.py       — Simulation (engine, coordinator mandatory)
+│       ├── dispatcher.py       — Dispatcher (ABC: pre-planning hook run by Simulation.step)
+│       └── simulation.py       — Simulation (engine, coordinator mandatory, dispatcher optional)
 │
 ├── client/                     — pygame rendering, depends only on core
 │   ├── __init__.py             — re-exports: Renderer, PIBTRenderer, PIBTInteractiveRenderer, StepSnapshot
@@ -123,7 +124,6 @@ class Grid:
     is_blocked(position) -> bool        # True if an agent OR an active blocking entity occupies it
     place(entity: WorldEntity)          # raises if invalid; raises if an agent cell is already taken
     remove(entity: WorldEntity)
-    move(agent, new_position) -> bool   # False if invalid or blocked, silent otherwise
     get_agent_at(position) -> Agent | None
     get_entities_at(position, kind=None) -> list[WorldEntity]   # filters active=True on _static
     get_all(kind=None) -> list[WorldEntity]
@@ -160,6 +160,16 @@ class PriorityBasedCoordinator(Coordinator):
 
 ---
 
+### `Dispatcher` — `core/engine/dispatcher.py`
+```python
+class Dispatcher(ABC):
+    @abstractmethod
+    def dispatch(self, agents: list[Agent], grid: Grid, step: int) -> None: ...
+```
+Pre-planning hook: `Simulation.step()` runs the dispatcher (if attached) **before** `coordinator.plan()`, so goals are never stale by construction. Living in `core` lets `Simulation` own the tick order (dispatch → plan) **without importing `mrta`** — the same dependency-inversion seam as `Coordinator`. `FleetManager` (in `mrta`) is the concrete dispatcher.
+
+---
+
 ### `Simulation` — `core/engine/simulation.py`
 ```python
 class Simulation:
@@ -168,20 +178,25 @@ class Simulation:
     entities:     list[WorldEntity]
     _pending:     list[WorldEntity]
     current_step: int
-    coordinator:  Coordinator   # mandatory — no per-agent fallback
+    coordinator:  Coordinator            # mandatory — no per-agent fallback
+    dispatcher:   Dispatcher | None       # optional — run before planning each step
 
+    __init__(grid, coordinator, dispatcher=None)
     add_agent(agent)         # place + append
     add_object(entity)       # append + place immediately if appear_at <= current_step
-    step() -> PlanResult     # spawn pending -> plan -> move ; returns the PlanResult
+    step() -> PlanResult     # spawn -> dispatch -> plan -> move ; returns the PlanResult
 ```
 
 **`step()` logic:**
 ```python
 # 1. Spawn deferred entities whose appear_at step has been reached
-# 2. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid)
-# 3. Apply result.positions (lift agents, move, place back)
-# 4. Return result — clients read diagnostics from it without importing algo
+# 2. Dispatch tasks (if a dispatcher is attached): self.dispatcher.dispatch(agents, grid, current_step)
+# 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid)
+# 4. Apply result.positions (lift agents, move, place back)
+# 5. Return result — clients read diagnostics from it without importing algo
 ```
+The `dispatch → plan` order is owned by `step()`, so a caller cannot plan on stale goals. Movement is applied by `step()` itself (lift-then-place: `grid.remove` → `agent.move_to` → `grid.place`) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
+
 Note: `step()` returning the `PlanResult` is the one deliberate deviation from the class diagram (which shows `void`) — it's how renderers get PIBT diagnostics without depending on `algo`.
 
 ---
@@ -333,7 +348,7 @@ class TaskSource(ABC):             # mrta/task_source.py
 class Allocator(ABC):              # mrta/allocator.py
     allocate(pending, free, grid) -> dict[Task, Agent]
 
-class FleetManager:                # mrta/fleet_manager.py
+class FleetManager(Dispatcher):    # mrta/fleet_manager.py — concrete Dispatcher
     source: TaskSource
     allocator: Allocator
     coordinator: PriorityBasedCoordinator
@@ -346,7 +361,7 @@ class FleetManager:                # mrta/fleet_manager.py
     _complete(agents)              # marks ASSIGNED tasks as DONE once assignee reaches target
 ```
 
-The rendez-vous point between `mrta` and `algo` is the shared `PriorityBasedCoordinator` instance: `FleetManager` calls `set_goal`/`set_priority` on it, and `Simulation.step()` calls `plan()` on the very same object.
+The rendez-vous point between `mrta` and `algo` is the shared `PriorityBasedCoordinator` instance: `FleetManager` calls `set_goal`/`set_priority` on it, and `Simulation.step()` calls `plan()` on the very same object. Because `FleetManager` is a `Dispatcher`, `Simulation` owns the ordering: pass the fleet as `Simulation(grid, coordinator, dispatcher=fleet)` and `step()` runs `dispatch()` before `plan()` on every tick — the caller no longer sequences them by hand.
 
 ---
 
