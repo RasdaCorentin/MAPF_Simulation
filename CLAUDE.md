@@ -2,4 +2,14 @@
 
 The full agent guide for this project lives in @AGENT.md — read it first.
 
+## Contributing rules
+
+Every code change, file rename, and new file MUST follow @CONVENTION.md:
+- **New files and renames** obey the repository-structure layout — where a file lives
+  and how it is named (English, per the tree in CONVENTION.md).
+- **Commits** use Conventional Commits (`type(scope)!: subject`, imperative, English)
+  with one logical change per commit.
+
 @AGENT.md
+
+@CONVENTION.md
