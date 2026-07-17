@@ -1,6 +1,6 @@
-@startuml simulation_class_diagram
+@startuml simulation_class_diagram_simple
 
-title Simulation — Diagramme de classes
+title Simulation — Class diagram (simple)
 
 skinparam classAttributeIconSize 0
 skinparam classFontSize 13
@@ -23,11 +23,12 @@ package "core" #EAF4FF {
             + __repr__() : str
         }
 
-        abstract class WorldEntity {
-            + entity_id      : int
-            + position       : Position
-            + appear_at      : int
+        class WorldEntity {
+            + entity_id       : int
+            + position        : Position
+            + appear_at       : int
             + blocks_movement : bool
+            + scale           : int = 1
             --
             + active : bool
         }
@@ -54,7 +55,6 @@ package "core" #EAF4FF {
             + is_blocked(position: Position) : bool
             + place(entity: WorldEntity) : void
             + remove(entity: WorldEntity) : void
-            + move(agent: Agent, new_position: Position) : bool
             + get_agent_at(position: Position) : Agent | None
             + get_entities_at(position: Position, kind) : list[WorldEntity]
             + get_all(kind) : list[WorldEntity]
@@ -63,6 +63,33 @@ package "core" #EAF4FF {
     }
 
     package "engine" {
+        class PlanResult {
+            + positions   : dict[int, Position]
+            + moves       : dict[int, tuple]
+            + order       : list[int]
+            + inheritance : list[tuple]
+            + priorities  : dict[int, float]
+        }
+
+        class DispatchIntent {
+            + goals      : dict[int, Position]
+            + priorities : dict[int, float]
+        }
+
+        abstract class Coordinator {
+            + {abstract} plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        }
+
+        abstract class Dispatcher {
+            + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        }
+
+        class StaticDispatcher {
+            - _intent : DispatchIntent
+            --
+            + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        }
+
         class Simulation {
             + grid         : Grid
             + agents       : list[Agent]
@@ -70,17 +97,13 @@ package "core" #EAF4FF {
             - _pending     : list[WorldEntity]
             + current_step : int
             + coordinator  : Coordinator
+            + dispatcher   : Dispatcher | None
+            + last_intent  : DispatchIntent
             --
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
-            + step() : void
+            + step() : PlanResult
             + __repr__() : str
-        }
-
-        abstract class Coordinator {
-            + plan(agents: list[Agent], grid: Grid) : dict[int, Position]
-            + set_goal(agent: Agent, target: Position) : void
-            + set_priority(agent: Agent, priority: float) : void
         }
     }
 }
@@ -100,18 +123,14 @@ package "client" #FFF5EA {
     }
 
     class StepSnapshot {
-        + step        : int
-        + positions   : dict[int, Position]
-        + priorities  : dict[int, float]
-        + order       : list[int]
-        + moves       : dict[int, tuple]
-        + inheritance : list[tuple]
-        + objects     : list[tuple]
-        + goals       : dict[int, Position]
+        + step    : int
+        + result  : PlanResult
+        + goals   : dict[int, Position]
+        + objects : list[tuple]
     }
 
     class PIBTInteractiveRenderer {
-        + sim  : Simulation
+        + sim : Simulation
         --
         + run(steps: int, auto_ms: int) : void
         - _build_history(steps: int) : list[StepSnapshot]
@@ -151,14 +170,14 @@ package "mrta" #FFF0F5 {
     class FleetManager {
         + source      : TaskSource
         + allocator   : Allocator
-        + coordinator : Coordinator
         + tasks       : list[Task]
         --
-        + dispatch(agents: list[Agent], grid: Grid, step: int) : void
+        + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         + set_priority(task_id: int, priority: float) : void
         - _intake(step: int) : void
         - _allocate(agents: list[Agent], grid: Grid) : void
         - _complete(agents: list[Agent]) : void
+        - _build_intent() : DispatchIntent
     }
 }
 
@@ -167,19 +186,21 @@ package "algo" #F0FFF0 {
     package "coordination" {
         class RandomWalkCoordinator {
             --
-            + plan(agents: list[Agent], grid: Grid) : dict[int, Position]
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
         }
 
         class ReservationTable {
             - _reserved : dict[Position, Agent]
             --
             + reserve(agent: Agent, pos: Position) : void
+            + release(agent: Agent) : void
             + get_reserving_agent(pos: Position) : Agent | None
+            + get_reservation(agent: Agent) : Position | None
             + clear() : void
         }
 
         class PriorityManager {
-            - _base : dict[Agent, float]
+            - _base    : dict[Agent, float]
             - _dynamic : dict[Agent, float]
             --
             + update(agents: list[Agent]) : void
@@ -188,16 +209,17 @@ package "algo" #F0FFF0 {
         }
 
         class PIBTCoordinator {
-            + goals        : dict[Agent, Position]
-            - _reservations: ReservationTable
-            - _priorities  : PriorityManager
-            - _processed   : set[Agent]
+            + goals         : dict[Agent, Position]
+            - _reservations : ReservationTable
+            - _priorities   : PriorityManager
+            - _processed    : set[Agent]
+            - _inheritance  : list[tuple[Agent, Agent]]
+            - _last_intent  : dict[int, tuple]
             --
-            + plan(agents: list[Agent], grid: Grid) : dict[int, Position]
-            + set_goal(agent: Agent, target: Position) : void
-            + set_priority(agent: Agent, priority: float) : void
-            - _pibt(agent: Agent, parent: Agent | None) : bool
-            - _h(pos: Position, agent: Agent) : int
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+            - _apply_intent(agents: list[Agent], intent: DispatchIntent) : void
+            - _pibt(agent: Agent, parent: Agent | None, grid: Grid) : bool
+            - _h(pos: Position, agent: Agent, grid: Grid) : int
         }
     }
 
@@ -216,36 +238,37 @@ package "algo" #F0FFF0 {
     }
 }
 
-' ── Simplified High-Level Relations ─────────────────────────────
-
 WorldEntity <|-- Agent
 WorldEntity *-- Position
-Grid o-- WorldEntity
+Grid *-- WorldEntity
+
 Simulation *-- Grid
-Simulation *-- Agent
-Simulation *-- WorldEntity
-Simulation *-- Coordinator
+Simulation o-- Coordinator
+Simulation o-- Dispatcher
 
-Task *-- TaskState
+Coordinator ..> PlanResult
+Coordinator ..> DispatchIntent
+Coordinator <|.. RandomWalkCoordinator
+Coordinator <|.. PIBTCoordinator
 
-Renderer o-- Simulation
-Renderer <|-- PIBTRenderer
-
-PIBTInteractiveRenderer o-- Simulation
-PIBTInteractiveRenderer ..> StepSnapshot
-
-Coordinator <|-- RandomWalkCoordinator
-Coordinator <|-- PIBTCoordinator
+Dispatcher ..> DispatchIntent
+Dispatcher <|.. StaticDispatcher
+Dispatcher <|.. FleetManager
 
 PIBTCoordinator *-- ReservationTable
 PIBTCoordinator *-- PriorityManager
 
-Allocator <|-- RandomAllocator
-Allocator <|-- KDTreeGreedyAllocator
+Renderer o-- Simulation
+PIBTRenderer --|> Renderer
+PIBTInteractiveRenderer o-- Simulation
+PIBTInteractiveRenderer ..> StepSnapshot
+StepSnapshot *-- PlanResult
+
+Task *-- TaskState
+Allocator <|.. RandomAllocator
+Allocator <|.. KDTreeGreedyAllocator
 
 FleetManager o-- TaskSource
-FleetManager o-- Allocator
-FleetManager o-- Coordinator
 FleetManager *-- Task
 
 @enduml
