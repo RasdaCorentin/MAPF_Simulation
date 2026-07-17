@@ -126,28 +126,35 @@ class PIBTInteractiveRenderer:
     def _build_history(self, total_steps: int) -> list[StepSnapshot]:
         """Input: number of steps to simulate.
         Output: list of StepSnapshot (index 0 = initial state), built by
-        running the simulation and capturing each step's PlanResult.
+        running the simulation and capturing each step's PlanResult and
+        goals. Goals now come from the tick's intent (via the coordinator),
+        so they are captured per frame after each step; the initial frame
+        is back-filled from the first step's goals.
         """
-        goals_by_id = {
-            a.agent_id: pos
-            for a, pos in getattr(self.sim.coordinator, "goals", {}).items()
-        }
         history = [StepSnapshot(
             step=0,
             result=PlanResult(
                 positions={a.agent_id: a.position for a in self.sim.agents},
             ),
-            goals=goals_by_id,
+            goals={},
             objects=self._snapshot_objects(),
         )]
         for _ in range(total_steps):
             result = self.sim.step()
+            goals_now = {
+                a.agent_id: pos
+                for a, pos in getattr(self.sim.coordinator, "goals", {}).items()
+            }
             history.append(StepSnapshot(
                 step=self.sim.current_step,
                 result=result,
-                goals=goals_by_id,
+                goals=goals_now,
                 objects=self._snapshot_objects(),
             ))
+        # Back-fill the initial frame's goals from the first step (correct
+        # for static goals; a reasonable preview for dynamic ones).
+        if len(history) > 1 and not history[0].goals:
+            history[0].goals = history[1].goals
         return history
 
     def _snapshot_objects(self) -> list[tuple]:

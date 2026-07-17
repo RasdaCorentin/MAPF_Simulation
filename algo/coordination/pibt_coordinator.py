@@ -7,15 +7,16 @@ ReservationTable, priorities in PriorityManager. The recursive core
 (_pibt / _h) receives `grid` as an argument instead of storing it, so
 no per-step grid state lives on the coordinator.
 
+Goals and base priorities are read from the tick's DispatchIntent
+(passed to plan()), never set by external mutation. The coordinator is
+stateless about allocation but keeps its own navigation state across
+ticks (dynamic priority drift, reservations).
+
 Usage:
-    a0 = Agent(0, Position(0, 0))
-    a1 = Agent(1, Position(9, 9))
     pibt = PIBTCoordinator()
-    pibt.set_goal(a0, Position(9, 9))
-    pibt.set_goal(a1, Position(0, 0))
-    pibt.set_priority(a0, 5.0)   # optional
-    sim = Simulation(grid, coordinator=pibt)
-    sim.add_agent(a0); sim.add_agent(a1)
+    intent = DispatchIntent(goals={0: Position(9, 9)}, priorities={0: 5.0})
+    sim = Simulation(grid, coordinator=pibt, dispatcher=StaticDispatcher(intent.goals, intent.priorities))
+    sim.add_agent(Agent(0, Position(0, 0)))
 
 plan() returns a PlanResult DTO carrying next positions plus PIBT
 diagnostics (priority order, moves, priority inheritances).
@@ -25,7 +26,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core import Position, PriorityBasedCoordinator, Agent, Grid, PlanResult
+from core import Position, Coordinator, Agent, Grid, PlanResult, DispatchIntent
 
 from .reservation_table import ReservationTable
 from .priority_manager import PriorityManager
@@ -34,43 +35,27 @@ DIRS    = [Position(0, -1), Position(0, 1), Position(-1, 0), Position(1, 0)]
 EPSILON = 1e-3
 
 
-class PIBTCoordinator(PriorityBasedCoordinator):
-    """PIBT coordinator — implements the PriorityBasedCoordinator interface.
+class PIBTCoordinator(Coordinator):
+    """PIBT coordinator — implements the Coordinator interface.
 
     Plugged into Simulation.coordinator, replaces per-agent movement
     computation with a single coordinated planning pass driven by agent
     priorities (Priority Inheritance with Backtracking).
     """
 
-    def __init__(
-        self,
-        goals: Optional[dict[Agent, Position]] = None,
-        initial_priorities: Optional[dict[Agent, float]] = None,
-    ) -> None:
-        """Input: optional initial goals (Agent -> target Position) and
-        initial base priorities (Agent -> float; default: insertion
-        index, last added = highest priority).
-        Output: None.
+    def __init__(self) -> None:
+        """Input: none.
+        Output: None. Goals/priorities arrive per tick via the intent.
         """
-        self.goals: dict[Agent, Position] = goals.copy() if goals is not None else {}
+        self.goals: dict[Agent, Position] = {}
         self._reservations = ReservationTable()
-        self._priorities = PriorityManager(initial_priorities)
+        self._priorities = PriorityManager()
         self._processed: set[Agent] = set()
         self._inheritance: list[tuple[Agent, Agent]] = []
-
-    # ── Coordinator interface ──────────────────────────────────────────────
-
-    def set_goal(self, agent: Agent, target: Position) -> None:
-        """Input: an agent and its new target cell.
-        Output: None.
-        """
-        self.goals[agent] = target
-
-    def set_priority(self, agent: Agent, priority: float) -> None:
-        """Input: an agent and its new base priority.
-        Output: None.
-        """
-        self._priorities.set_base(agent, priority)
+        # Last (goal, priority) seen per agent_id — used to re-seed the base
+        # priority ONLY when the allocation intent actually changes, so the
+        # dynamic priority drift (anti-starvation) is never clobbered.
+        self._last_intent: dict[int, tuple[Optional[Position], Optional[float]]] = {}
 
     # ── Heuristic ────────────────────────────────────────────────────────────
 
@@ -147,11 +132,35 @@ class PIBTCoordinator(PriorityBasedCoordinator):
 
     # ── Interface Coordinator ─────────────────────────────────────────────────
 
-    def plan(self, agents: list[Agent], grid: Grid) -> PlanResult:
-        """Input: all simulated agents and the grid (read-only).
+    def _apply_intent(self, agents: list[Agent], intent: DispatchIntent) -> None:
+        """Input: the agents and this tick's intent.
+        Output: None. Rebuilds ``self.goals`` (fallback: stay in place) and
+        re-seeds a base priority ONLY when an agent's goal changed or its
+        business priority is strictly different from the previous tick —
+        never otherwise, to preserve the dynamic priority drift.
+        """
+        self.goals = {a: intent.goals.get(a.agent_id, a.position) for a in agents}
+
+        for agent in agents:
+            aid = agent.agent_id
+            prio = intent.priorities.get(aid)
+            if prio is None:
+                continue
+            key = (intent.goals.get(aid), prio)
+            if self._last_intent.get(aid) != key:
+                self._priorities.set_base(agent, prio)
+            self._last_intent[aid] = key
+
+    def plan(self, agents: list[Agent], grid: Grid, intent: DispatchIntent) -> PlanResult:
+        """Input: all simulated agents, the grid (read-only), and this
+        tick's DispatchIntent (goals + optional priorities).
         Output: a PlanResult with next positions plus PIBT diagnostics
         (priority order, moves, priority inheritances, priorities).
         """
+        # Seed goals + base priorities from the intent BEFORE decaying, so a
+        # freshly-seeded base is decayed once this tick like every other.
+        self._apply_intent(agents, intent)
+
         self._priorities.update(agents)
 
         for agent in agents:

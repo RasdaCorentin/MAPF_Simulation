@@ -14,10 +14,10 @@ priority inheritances triggered at every step.
 To build your own demo:
 
   1. Pick a Coordinator (PIBTCoordinator, RandomWalkCoordinator, or your own).
-  2. Build the simulation: Simulation(grid, coordinator=my_algo).
-  3. Add agents and entities via sim.add_agent() / sim.add_object().
-  4. Configure goals/priorities on the coordinator via set_goal() /
-     set_priority() (PIBTCoordinator and any PriorityBasedCoordinator).
+  2. Provide goals/priorities through a Dispatcher — a StaticDispatcher for
+     fixed targets, or a FleetManager (mrta) for task allocation.
+  3. Build the simulation: Simulation(grid, coordinator=my_algo, dispatcher=d).
+  4. Add agents and entities via sim.add_agent() / sim.add_object().
   5. Launch with:
        PIBTInteractiveRenderer(sim).run(steps=25)  # with navigation
        PIBTRenderer(sim).run(steps=30, pause=0.3)  # read-only playback
@@ -25,8 +25,8 @@ To build your own demo:
 
 To add your own algorithm:
   -> see algo/coordination/random_walk.py for a minimal example.
-  -> your class must inherit from Coordinator (or PriorityBasedCoordinator)
-     and implement plan().
+  -> your class must inherit from Coordinator and implement
+     plan(agents, grid, intent).
 ────────────────────────────────────────────────────────────────
 """
 
@@ -37,7 +37,7 @@ DEBUG = "-d" in sys.argv
 if DEBUG:
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
-from core import Simulation, Agent, Grid, Position
+from core import Simulation, Agent, Grid, Position, StaticDispatcher
 from algo import PIBTCoordinator
 if DEBUG:
     # Direct import — avoids loading pygame through client/__init__.py
@@ -58,28 +58,25 @@ start_positions = [
 ]
 agents = [Agent(agent_id=i, position=pos) for i, pos in enumerate(start_positions)]
 
-# ── 3. Coordinator: created empty, then configured via set_goal/set_priority ──
-
-pibt = PIBTCoordinator()
-sim = Simulation(grid, coordinator=pibt)
-
-for agent in agents:
-    sim.add_agent(agent)
-
-# Target cell for each agent — edit these to change where agents go.
+# ── 3. Fixed goals/priorities, fed every tick by a StaticDispatcher ──────────
+#    No MRTA here: a StaticDispatcher returns the same DispatchIntent each tick.
+#    Target cell for each agent — edit these to change where agents go.
 goal_positions = [
     Position(4, 4), Position(4, 1), Position(0, 4), Position(0, 0), Position(3, 4),
     Position(4, 3), Position(2, 2), Position(0, 2), Position(1, 1), Position(4, 2),
 ]
-for agent, goal in zip(agents, goal_positions):
-    pibt.set_goal(agent, goal)
+# Priorities — higher value means served first.
+priority_values = [20.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0]
 
-# Initial priorities — higher value means served first. Optional: if
-# omitted, PIBTCoordinator assigns priorities by insertion order.
-# Adjustable here or during simulation via pibt.set_priority(agent, x).
-initial_priorities = [20.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0]
-for agent, priority in zip(agents, initial_priorities):
-    pibt.set_priority(agent, priority)
+goals = {agent.agent_id: goal for agent, goal in zip(agents, goal_positions)}
+priorities = {agent.agent_id: p for agent, p in zip(agents, priority_values)}
+
+pibt = PIBTCoordinator()
+dispatcher = StaticDispatcher(goals=goals, priorities=priorities)
+sim = Simulation(grid, coordinator=pibt, dispatcher=dispatcher)
+
+for agent in agents:
+    sim.add_agent(agent)
 
 # ── 4. World entities ──────────────────────────────────────────────────────
 #    Obstacles: WorldEntity with blocks_movement=True — no subclass needed.

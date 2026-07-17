@@ -1,6 +1,6 @@
 """Multi-Robot Task Allocation: tasks, sources, allocation and dispatch.
 
-Depends only on core (Agent, Grid, Position, PriorityBasedCoordinator) —
+Depends only on core (Agent, Grid, Position, Dispatcher, DispatchIntent) —
 never on algo or client.
 """
 

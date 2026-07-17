@@ -40,19 +40,21 @@ activate Fleet
     TaskSource --> Fleet : new tasks
     Fleet -> Allocator : allocate(pending, free, grid)
     Allocator --> Fleet : {task -> agent}
-    loop each matched (task, agent)
-        Fleet -> Coord : set_goal(agent, task.target)
-        Fleet -> Coord : set_priority(agent, task.priority)
-    end
+    Fleet -> Fleet : _build_intent()
+    Fleet --> Simulation : DispatchIntent
 deactivate Fleet
+note right of Simulation
+  No dispatcher -> empty DispatchIntent.
+  FleetManager never touches the coordinator.
+end note
 
 == 3. Coordinated planning ==
-Simulation -> Coord : plan(agents, grid)
+Simulation -> Coord : plan(agents, grid, intent)
 activate Coord
     note right of Coord
-      PIBT: decay priorities, rank agents,
-      recurse (_pibt) with inheritance +
-      backtracking, reserve next cells
+      PIBT: read goals from intent, re-seed base
+      priority only if the intent changed, decay,
+      rank, recurse (_pibt), reserve next cells
     end note
     Coord --> Simulation : PlanResult
 deactivate Coord

@@ -81,17 +81,23 @@ package "core" #EAF4FF {
             + priorities  : dict[int, float]
         }
 
-        abstract class Coordinator <<Strategy>> {
-            + {abstract} plan(agents: list[Agent], grid: Grid) : PlanResult
-            + set_goal(agent: Agent, target: Position) : void
+        class DispatchIntent <<DTO>> {
+            + goals      : dict[int, Position]
+            + priorities : dict[int, float]
         }
 
-        abstract class PriorityBasedCoordinator {
-            + {abstract} set_priority(agent: Agent, priority: float) : void
+        abstract class Coordinator <<Strategy>> {
+            + {abstract} plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
         }
 
         abstract class Dispatcher <<Strategy>> {
-            + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : void
+            + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        }
+
+        class StaticDispatcher {
+            - _intent : DispatchIntent
+            --
+            + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         }
 
         class Simulation {
@@ -102,6 +108,7 @@ package "core" #EAF4FF {
             + current_step : int
             + coordinator  : Coordinator
             + dispatcher   : Dispatcher | None
+            + last_intent  : DispatchIntent
             --
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
@@ -173,14 +180,14 @@ package "mrta" #FFF0F5 {
     class FleetManager {
         + source      : TaskSource
         + allocator   : Allocator
-        + coordinator : PriorityBasedCoordinator
         + tasks       : list[Task]
         --
-        + dispatch(agents: list[Agent], grid: Grid, step: int) : void
+        + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         + set_priority(task_id: int, priority: float) : void
         - _intake(step: int) : void
         - _allocate(agents: list[Agent], grid: Grid) : void
         - _complete(agents: list[Agent]) : void
+        - _build_intent() : DispatchIntent
     }
 }
 
@@ -189,7 +196,7 @@ package "algo" #F0FFF0 {
     package "coordination" {
         class RandomWalkCoordinator {
             --
-            + plan(agents: list[Agent], grid: Grid) : PlanResult
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
         }
 
         class ReservationTable {
@@ -217,10 +224,10 @@ package "algo" #F0FFF0 {
             - _priorities   : PriorityManager
             - _processed    : set[Agent]
             - _inheritance  : list[tuple[Agent, Agent]]
+            - _last_intent  : dict[int, tuple]
             --
-            + plan(agents: list[Agent], grid: Grid) : PlanResult
-            + set_goal(agent: Agent, target: Position) : void
-            + set_priority(agent: Agent, priority: float) : void
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+            - _apply_intent(agents: list[Agent], intent: DispatchIntent) : void
             - _pibt(agent: Agent, parent: Agent | None, grid: Grid) : bool
             - _h(pos: Position, agent: Agent, grid: Grid) : int
         }
@@ -251,14 +258,15 @@ Grid "1" *-- "0..*" WorldEntity : "> contain"
 ' ── Engine: simulation loop ───────────────────────────────────────
 Simulation "1" *-- "1" Grid           : grid
 Simulation "1" *-- "0..*" WorldEntity : entities
-Simulation "1" o-- "1" Coordinator    : coordinator (shared)
+Simulation "1" o-- "1" Coordinator    : coordinator
 Simulation "1" o-- "0..1" Dispatcher  : dispatcher (optional)
+Simulation "1" *-- "1" DispatchIntent : last_intent
 Coordinator ..> PlanResult : «returns»
+Coordinator ..> DispatchIntent : «reads»
 
-' ── Coordinator hierarchy (Strategy + refinement) ─────────────────
-Coordinator <|-- PriorityBasedCoordinator
+' ── Coordinator hierarchy (Strategy) ──────────────────────────────
 Coordinator <|.. RandomWalkCoordinator
-PriorityBasedCoordinator <|.. PIBTCoordinator
+Coordinator <|.. PIBTCoordinator
 
 ' ── PIBT decomposition (Extract-Class) ────────────────────────────
 PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
@@ -279,10 +287,11 @@ Allocator <|.. RandomAllocator
 Allocator <|.. KDTreeGreedyAllocator
 
 Dispatcher <|.. FleetManager
-FleetManager "1" o-- "1" TaskSource              : source
-FleetManager "1" o-- "1" Allocator               : allocator
-FleetManager "1" o-- "1" PriorityBasedCoordinator : coordinator (shared)
-FleetManager "1" *-- "0..*" Task                 : tasks
+Dispatcher <|.. StaticDispatcher
+Dispatcher ..> DispatchIntent : «returns»
+FleetManager "1" o-- "1" TaskSource   : source
+FleetManager "1" o-- "1" Allocator    : allocator
+FleetManager "1" *-- "0..*" Task      : tasks
 
 ' =====================================================================
 '  NOTES: simulation context & design patterns
@@ -298,13 +307,14 @@ note bottom of PlanResult
   the renderers decoupled from `algo`.
 end note
 
-note right of PriorityBasedCoordinator
-  **Interface Segregation**
-  set_priority is isolated here: RandomWalk (no priorities)
-  inherits from Coordinator without being forced to implement it.
-  The SAME PIBTCoordinator instance is seen as:
-  • Coordinator            by Simulation  (plan / set_goal)
-  • PriorityBasedCoordinator by FleetManager (set_priority)
+note bottom of DispatchIntent
+  **Data Transfer Object (DTO) — allocation contract**
+  Absolute goals/priorities wanted this tick (agent_id-keyed).
+  It replaces external mutation of the coordinator:
+  • FleetManager RETURNS it (no coordinator reference)
+  • plan() READS it (priorities ignored by goal-less algos)
+  Decouples allocation from navigation: any Coordinator
+  (even RandomWalk) can be paired with any Dispatcher.
 end note
 
 note bottom of PIBTCoordinator
@@ -318,21 +328,22 @@ end note
 note top of FleetManager
   **Control loop — owned by Simulation.step()**:
   1. dispatch (if a dispatcher is attached):
-     _complete -> _intake -> _allocate ->
-     set_goal / set_priority on the shared coordinator
-  2. coordinator.plan -> PlanResult
+     _complete -> _intake -> _allocate -> return DispatchIntent
+  2. coordinator.plan(intent) -> PlanResult
   3. apply moves (grid.remove -> agent.move_to -> grid.place)
-  Rendez-vous point = the shared Coordinator.
-  mrta depends only on core (Coordinator, Task, Position, Dispatcher).
+  FleetManager holds NO coordinator reference — it is pure
+  w.r.t. the engine. mrta depends only on core
+  (Dispatcher, DispatchIntent, Task, Position).
 end note
 
 note right of Dispatcher
   **Orchestration seam (Dependency Inversion)**
   Pre-planning hook: Simulation.step() calls dispatch()
-  BEFORE plan(), so goals are never stale by construction.
-  Living in core lets Simulation own the tick order
-  (dispatch -> plan) WITHOUT importing mrta — exactly like
-  Coordinator. FleetManager is the concrete dispatcher.
+  BEFORE plan(), passing the returned DispatchIntent to it,
+  so goals are never stale by construction. Living in core
+  lets Simulation own the tick order (dispatch -> plan)
+  WITHOUT importing mrta — like Coordinator. FleetManager
+  and StaticDispatcher are the concrete dispatchers.
 end note
 
 note bottom of Simulation

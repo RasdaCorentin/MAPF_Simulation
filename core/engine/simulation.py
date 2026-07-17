@@ -5,6 +5,7 @@ from ..entities.agent import Agent
 from ..entities.entity import WorldEntity
 from .coordinator import Coordinator
 from .dispatcher import Dispatcher
+from .dispatch_intent import DispatchIntent
 from .plan_result import PlanResult
 
 
@@ -15,7 +16,8 @@ class Simulation:
     world one step at a time. A Coordinator is mandatory: ``step()``
     always delegates movement planning to ``coordinator.plan()``. An
     optional Dispatcher (e.g. a FleetManager) is run at the start of each
-    step, before planning, so the coordinator's goals are always current.
+    step to produce this tick's ``DispatchIntent`` (goals/priorities),
+    which is passed to ``plan()`` — the coordinator is never mutated.
     """
 
     def __init__(
@@ -35,6 +37,7 @@ class Simulation:
         self.current_step = 0
         self.coordinator = coordinator
         self.dispatcher = dispatcher
+        self.last_intent = DispatchIntent()
 
     def add_agent(self, agent: Agent) -> None:
         """Input: an agent (its position must be free and valid).
@@ -69,12 +72,16 @@ class Simulation:
             self.grid.place(entity)
             self._pending.remove(entity)
 
-        # 2. Dispatch tasks before planning so goals are never stale
+        # 2. Dispatch tasks before planning: compute this tick's intent
+        # (absolute goals/priorities). An empty intent if no dispatcher.
         if self.dispatcher is not None:
-            self.dispatcher.dispatch(self.agents, self.grid, self.current_step)
+            intent = self.dispatcher.dispatch(self.agents, self.grid, self.current_step)
+        else:
+            intent = DispatchIntent()
+        self.last_intent = intent
 
-        # 3. Coordinator computes all next positions (global plan)
-        result = self.coordinator.plan(self.agents, self.grid)
+        # 3. Coordinator computes all next positions from the intent
+        result = self.coordinator.plan(self.agents, self.grid, intent)
 
         # 4. Lift phase: remove moving agents from the grid first
         # so they do not artificially block each other
