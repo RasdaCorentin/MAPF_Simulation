@@ -3,7 +3,7 @@
 sim_many_pibt.py — L0 benchmark: PIBT algorithm sweep, no pygame, no hardware.
 
 Sweeps grid resolution × N × 30 seeds and writes per-instance rows to
-l0_results.csv, then prints a breaking-point summary.
+sim_results.csv, then prints a breaking-point summary.
 
 Grids (2000 × 2000 mm arena):
     4×4  — 500 mm cells
@@ -35,7 +35,7 @@ GRIDS = [
 ARENA_MM  = 2000
 MAX_STEPS = 100
 N_SEEDS   = 30
-OUTPUT    = "l0_results.csv"
+OUTPUT    = "sim_results.csv"
 
 # ── Scenario generator ────────────────────────────────────────────────────────
 
