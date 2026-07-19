@@ -2,6 +2,7 @@ from typing import Optional
 
 from ..environment.grid import Grid
 from ..entities.agent import Agent
+from ..entities.position import Position
 from ..entities.entity import WorldEntity
 from .coordinator import Coordinator
 from .dispatcher import Dispatcher
@@ -57,12 +58,60 @@ class Simulation:
         else:
             self._pending.append(entity)
 
+    def _validate(self, result: PlanResult) -> None:
+        """Input: the PlanResult about to be applied.
+        Output: None. Raises ValueError if the plan is not applicable —
+        a target off the grid, onto an active blocking entity, or shared
+        by two agents.
+
+        Checked *before* any mutation rather than rolled back after one:
+        the lift/place transaction cannot fail partially if failure is
+        impossible. A rollback would have to restore both ``position``
+        and grid placement, and could itself fail. Cost is O(n).
+        """
+        claimed: dict[Position, int] = {}
+        for agent in self.agents:
+            target = result.positions.get(agent.agent_id, agent.position)
+            who = type(self.coordinator).__name__
+
+            # Cell uniqueness covers every agent: a mover must not target
+            # a cell a stationary agent keeps.
+            if target in claimed:
+                raise ValueError(
+                    f"{who} planned agents {claimed[target]} and "
+                    f"{agent.agent_id} onto the same cell {target}."
+                )
+            claimed[target] = agent.agent_id
+
+            # Bounds and blocking only concern agents that actually move:
+            # an agent standing still is not entering anything. This also
+            # keeps an obstacle spawning onto an occupied cell (appear_at)
+            # from being reported as a planning error.
+            if target == agent.position:
+                continue
+
+            if not self.grid.is_valid(target):
+                raise ValueError(
+                    f"{who} planned agent {agent.agent_id} onto {target}, "
+                    f"outside the {self.grid.width}x{self.grid.height} grid."
+                )
+            if any(
+                e.blocks_movement and e.active
+                for e in self.grid.get_entities_at(target)
+                if not isinstance(e, Agent)
+            ):
+                raise ValueError(
+                    f"{who} planned agent {agent.agent_id} onto {target}, "
+                    f"which holds a blocking entity."
+                )
+
     def step(self) -> PlanResult:
         """Input: none.
         Output: the PlanResult of this step (returned so that clients can
         display planning diagnostics without depending on the algorithm).
         Advances the world by one step: spawn pending entities, dispatch
-        tasks (if a dispatcher is attached), plan, then apply the moves.
+        tasks (if a dispatcher is attached), plan, validate, then apply
+        the moves.
         """
         self.current_step += 1
 
@@ -83,7 +132,12 @@ class Simulation:
         # 3. Coordinator computes all next positions from the intent
         result = self.coordinator.plan(self.agents, self.grid, intent)
 
-        # 4. Lift phase: remove moving agents from the grid first
+        # 4. Reject an inapplicable plan before touching the grid, so the
+        # lift/place transaction below can never fail halfway through and
+        # leave agents off the grid.
+        self._validate(result)
+
+        # 5. Lift phase: remove moving agents from the grid first
         # so they do not artificially block each other
         moving_agents = []
         for agent in self.agents:
@@ -92,10 +146,11 @@ class Simulation:
                 moving_agents.append((agent, target_pos))
                 self.grid.remove(agent)  # agent leaves its current cell
 
-        # 5. Place phase: apply movement and put agents back on the grid
+        # 6. Place phase: apply movement and put agents back on the grid.
+        # _validate() guarantees every target is free, so place() cannot raise.
         for agent, target_pos in moving_agents:
             agent.move_to(target_pos)
-            self.grid.place(agent)  # will raise cleanly if cell is already occupied
+            self.grid.place(agent)
 
         return result
 
