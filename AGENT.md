@@ -14,7 +14,18 @@ python main.py --algo random --mode static      # the historical random-walk dem
 python demo_pibt.py                             # legacy PIBT demo (5x5, keyboard navigation)
 python demo_pibt.py -d                          # same, debug mode: terminal print, zero pygame
 python sim_many_pibt.py --seeds 2               # headless L0 benchmark sweep -> sim_results.csv
+python sim_many_mrta.py --seeds 2               # MRTA post-run report -> mrta_results.csv
+python sim_many_mrta.py --obstacles 14 --per-task mrta_tasks.csv   # + failure paths, per-task drill-down
 ```
+
+**Two reports, two questions.** `sim_many_pibt.py` asks "does PIBT route agents to fixed
+goals" — but its `success_rate` **latches on the first time an agent touches its goal** and is
+never invalidated (`sim_many_pibt.py:87`), so a fleet that converges then scatters still scores
+100%. `sim_many_mrta.py` reports the task lifecycle instead, with every distribution given as
+**mean and max** because the failure mode is "nineteen agents are fine and one is not" — the
+exact thing a mean hides. Key columns: `drift_max` / `drift_agents` (agents pushed off a
+completed target), `goalless_frac`, `reassignments`, `failed_unreachable` vs `failed_stalled`,
+and `dispatch_ms_mean` vs `plan_ms_mean` (allocator cost separated from planner cost).
 
 `main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
 `--mode {mrta,static}`, `--tasks {none,random}`, `--frontend {pygame,headless}`, `--steps`,

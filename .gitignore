@@ -6,3 +6,5 @@ venv/
 .idea/
 .vscode/
 sim_results.csv
+mrta_results.csv
+mrta_tasks.csv
