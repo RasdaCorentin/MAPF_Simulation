@@ -26,10 +26,14 @@ original authors.
 - **Pluggable `Coordinator` interface** — drop in any MAPF algorithm; every `plan()`
   returns a uniform `PlanResult` DTO.
 - Two coordinators provided: **PIBT** and a minimal **random walk**.
-- **Task allocation** (`mrta/`): tasks, a task source, an allocator interface and a
-  fleet manager that dispatches goals to the shared coordinator.
-- **Interactive step-by-step viewer**: priority order, per-agent moves, and
-  priority-inheritance chains shown live, with free back/forward navigation.
+- **Task allocation** (`mrta/`): tasks with a full lifecycle (including failure and a
+  progress watchdog), several task sources, an allocator interface, and a fleet
+  manager that dispatches goals to the shared coordinator.
+- **Interactive fleet control**: select agents with the mouse and send a batch to a
+  destination — routed through task allocation, so it inherits collision avoidance
+  from the planner.
+- **Scripting API** (`client/control/`): build and drive a scenario in a few lines,
+  with no pygame involved.
 - Deferred spawns and impassable obstacles.
 
 ## Requirements
@@ -52,19 +56,32 @@ pip install -r requirements.txt
 Run from the repository root:
 
 ```bash
-python demo_pibt.py       # interactive PIBT demo (5×5 grid, navigable)
-python demo_pibt.py -d    # terminal debug mode — prints each step, no pygame window
-python main.py            # random-walk demo (10×10 grid)
+python main.py                                  # 15×15, 20 agents, PIBT + task allocation
+python main.py --tasks random                   # same, self-generating background work
+python main.py --frontend headless --steps 20   # terminal output, no window
+python main.py --algo random --mode static      # the historical random-walk demo
+python demo_pibt.py                             # legacy PIBT demo (5×5 grid, navigable)
+python demo_pibt.py -d                          # terminal debug mode, no pygame window
 ```
+
+Useful flags: `--width/--height`, `--agents`, `--obstacles`, `--algo {pibt,random}`,
+`--mode {mrta,static}`, `--tasks {none,random}`, `--seed`, `--tick-ms`.
 
 ### Interactive controls
 
-| Key            | Action            |
-| -------------- | ----------------- |
-| `Space`        | play / pause      |
-| `→`            | step forward      |
-| `←`            | step back         |
-| `Q` / `Esc`    | quit              |
+Select agents, then click a destination — the batch is turned into tasks, allocated,
+and routed by the planner.
+
+| Input                  | Action                          |
+| ---------------------- | ------------------------------- |
+| click an agent         | toggle its selection            |
+| drag                   | rubber-band selection           |
+| click a cell           | send the selected batch there   |
+| `Space`                | play / pause                    |
+| `→`                    | step forward                    |
+| `←`                    | replay backwards                |
+| `A` / `C`              | select all / clear selection    |
+| `Q` / `Esc`            | quit                            |
 
 ## Project structure
 
@@ -73,15 +90,26 @@ core/      pure simulation engine — entities/ (Position, WorldEntity, Agent),
            environment/ (Grid), engine/ (Simulation, Coordinator, PlanResult)
 algo/      MAPF algorithms — coordination/ (PIBT, random walk), allocation/
 mrta/      Multi-Robot Task Allocation (Task, TaskSource, Allocator, FleetManager)
-client/    pygame rendering
+client/    presentation — control/ (scripting API), view/ (frozen DTOs),
+           frontends/ (pygame, headless)
 diagrammes/ PlantUML class diagram sources + generated PNGs
-demo_pibt.py interactive PIBT entry point
-main.py     random-walk entry point
+main.py     CLI entry point
+demo_pibt.py legacy interactive PIBT entry point
 ```
 
-Dependencies are strictly one-directional: `mrta → core`, `algo → core, mrta`,
-`client → core`. `core/` never imports the others. See [`GUIDE.md`](GUIDE.md) for a
-human tour of the project and [`AGENT.md`](AGENT.md) for the full architecture reference.
+Dependencies are strictly one-directional:
+
+```
+mrta             → core
+algo             → core, mrta
+client.view      → core, mrta (value types only)
+client.control   → core, algo, mrta      (composition root)
+client.frontends → core, client.view     (read-only)
+```
+
+`core/` never imports the others, and frontends never see an algorithm or any task-allocation
+behaviour — only frozen values. See [`GUIDE.md`](GUIDE.md) for a human tour of the project and
+[`AGENT.md`](AGENT.md) for the full architecture reference.
 
 ## Adding your own algorithm
 

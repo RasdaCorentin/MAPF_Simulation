@@ -8,18 +8,32 @@
 ## Running the simulation
 
 ```bash
-python main.py                    # random-walk demo (10x10, 5 agents, 20 steps)
-python demo_pibt.py               # interactive PIBT demo (5x5, 10 agents, keyboard navigation)
-python demo_pibt.py -d            # same, debug mode: terminal print, zero pygame
-python sim_many_pibt.py --seeds 2 # headless L0 benchmark sweep -> sim_results.csv
+python main.py                                  # 15x15, 20 agents, PIBT + MRTA, interactive window
+python main.py --tasks random                   # same, self-generating background work
+python main.py --algo random --mode static      # the historical random-walk demo
+python demo_pibt.py                             # legacy PIBT demo (5x5, keyboard navigation)
+python demo_pibt.py -d                          # same, debug mode: terminal print, zero pygame
+python sim_many_pibt.py --seeds 2               # headless L0 benchmark sweep -> sim_results.csv
 ```
 
-The first two open a blocking pygame window (except `-d`). Dependencies: `requirements.txt` + pygame (`pip install pygame`).
+`main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
+`--mode {mrta,static}`, `--tasks {none,random}`, `--frontend {pygame,headless}`, `--steps`,
+`--seed`, `--tick-ms`.
+
+**In the window**: click an agent to toggle it, drag a rubber band to select several, then click a
+cell to send the batch there. `Space` play/pause · `→` step · `←` replay backwards · `A`/`C`
+select all / clear · `Q` quit.
+
+Dependencies: `requirements.txt` + pygame (`pip install pygame`).
 
 **Fastest ways to exercise the code without a window** (use these to verify changes):
-`python demo_pibt.py -d` (PIBT + StaticDispatcher, terminal output) and
-`python sim_many_pibt.py --seeds 2` (full sweep, ~200 instances, a few seconds).
-There is currently **no test suite** — these two are the de-facto regression checks.
+```bash
+python main.py --frontend headless --tasks random --steps 20   # full MRTA path
+python main.py --frontend headless --mode static --algo random --steps 10
+python demo_pibt.py -d
+python sim_many_pibt.py --seeds 2                              # ~200 instances, a few seconds
+```
+There is currently **no test suite** — these are the de-facto regression checks.
 
 ---
 
@@ -44,18 +58,36 @@ There is currently **no test suite** — these two are the de-facto regression c
 │       ├── static_dispatcher.py — StaticDispatcher (fixed intent every tick; MRTA-free scenarios)
 │       └── simulation.py       — Simulation (engine, coordinator mandatory, dispatcher optional)
 │
-├── client/                     — pygame rendering, depends only on core
-│   ├── __init__.py             — re-exports: Renderer, PIBTRenderer, PIBTInteractiveRenderer, StepSnapshot
-│   ├── renderer.py             — Renderer (generic pygame loop, read-only view of Simulation)
-│   ├── pibt_renderer.py        — PIBTRenderer (extends Renderer: goals, priorities overlay)
-│   └── pibt_interactive_renderer.py — PIBTInteractiveRenderer (history + keyboard navigation)
+├── client/                     — presentation: scripting API, frozen views, frontends
+│   ├── __init__.py             — lazy (PEP 562) re-exports of the legacy pygame renderers
+│   ├── control/                — PART 1: scripting API, pygame-free (COMPOSITION ROOT)
+│   │   ├── config.py           — ScenarioConfig (frozen)
+│   │   ├── factory.py          — build(config) -> SimulationController
+│   │   └── controller.py       — SimulationController: step / run / send_batch_to / snapshot
+│   ├── view/                   — frozen value types shared by control and frontends
+│   │   ├── task_view.py        — TaskView (frozen projection of a Task, assignee_id: int)
+│   │   └── snapshot.py         — StepSnapshot (result, goals, objects, tasks, counters)
+│   ├── frontends/              — PART 2: presentation only
+│   │   ├── frontend.py         — Frontend (ABC: run(steps))
+│   │   ├── pygame_frontend.py  — interactive window: board + selection + batch dispatch
+│   │   ├── sidebar.py          — Sidebar: selection readout, task tallies, buttons
+│   │   └── headless_frontend.py — terminal output, zero pygame
+│   ├── renderer.py             — LEGACY Renderer (generic pygame loop) — demo_pibt.py only
+│   ├── pibt_renderer.py        — LEGACY PIBTRenderer
+│   └── pibt_interactive_renderer.py — LEGACY PIBTInteractiveRenderer (pre-computed history)
 │
 ├── mrta/                        — Multi-Robot Task Allocation, depends only on core
-│   ├── __init__.py              — re-exports: Task, TaskState, TaskSource, Allocator, FleetManager
-│   ├── task.py                  — TaskState (enum), Task (dataclass)
+│   ├── __init__.py              — re-exports: Task, TaskState, TaskSource, QueueTaskSource,
+│   │                              RandomTaskSource, ScriptedTaskSource, CompositeTaskSource,
+│   │                              Allocator, FleetManager
+│   ├── task.py                  — TaskState (enum, incl. FAILED), Task (dataclass)
 │   ├── task_source.py           — TaskSource (ABC: poll(current_step) -> list[Task])
+│   ├── queue_task_source.py     — QueueTaskSource: externally fed queue, drained per poll
+│   ├── random_task_source.py    — RandomTaskSource: seeded random tasks on free cells
+│   ├── scripted_task_source.py  — ScriptedTaskSource: {step: [Task]} schedule
+│   ├── composite_task_source.py — CompositeTaskSource: merges several sources
 │   ├── allocator.py             — Allocator (ABC: allocate(pending, free, grid) -> dict[Task, Agent])
-│   └── fleet_manager.py         — FleetManager (dispatch loop: complete -> intake -> allocate)
+│   └── fleet_manager.py         — FleetManager (complete -> watchdog -> prune -> intake -> allocate)
 │
 ├── algo/                        — MAPF algorithms, depends on core (and mrta for allocation)
 │   ├── __init__.py              — re-exports: PIBTCoordinator, RandomWalkCoordinator,
@@ -70,11 +102,26 @@ There is currently **no test suite** — these two are the de-facto regression c
 │       └── kdtree_greedy_allocator.py  — KDTreeGreedyAllocator: design stub (NotImplementedError)
 │
 ├── diagrammes/                  — PlantUML class diagram sources + generated PNGs
-├── main.py                      — random-walk demo entry point
-└── demo_pibt.py                 — interactive PIBT demo entry point
+├── rapport_plan.md              — design report on the task lifecycle (French, working doc)
+├── main.py                      — CLI entry point (argparse -> client.control.build)
+└── demo_pibt.py                 — legacy interactive PIBT demo entry point
 ```
 
-Dependency direction (strict, matches the class diagram): `mrta -> core` ; `algo -> core, mrta` ; `client -> core`.
+**Dependency direction** (strict, matches the class diagram):
+
+```
+mrta            -> core
+algo            -> core, mrta
+client.view     -> core, mrta (VALUE types only: Position, TaskState)
+client.control  -> core, algo, mrta            (composition root)
+client.frontends-> core, client.view           (read-only)
+```
+
+`client/` can no longer "depend only on core": picking the algorithm and wiring the fleet *is*
+the scripting API's job. The rule that replaces it: **frontends know neither `algo` nor any mrta
+*behaviour*** (`FleetManager`, `Allocator`, `TaskSource`) — they see frozen values only.
+`TaskView.state` importing `TaskState` is a dependency on a *value*, not on behaviour;
+duplicating the enum client-side would reintroduce drift, typing it `str` would lose the safety.
 
 ---
 
@@ -222,6 +269,112 @@ Note: `step()` returning the `PlanResult` is the one deliberate deviation from t
 
 ## Classes in `client/`
 
+### `ScenarioConfig` — `client/control/config.py`
+```python
+@dataclass(frozen=True)
+class ScenarioConfig:
+    width: int = 15;  height: int = 15;  agents: int = 20;  obstacles: int = 0
+    algo: str = "pibt"    # "pibt" | "random"
+    mode: str = "mrta"    # "mrta" | "static"
+    seed: int = 0
+    tasks: str = "none"   # "none" | "random"  — background generation
+    task_every: int = 5;  task_count: int = 2
+    patience: int = 12;   max_attempts: int = 3    # FleetManager watchdog tuning
+```
+Frozen: a config is a record of what was asked for, so a run is reproducible from it plus its
+seed. `__post_init__` rejects unknown algo/mode/tasks and a scenario that cannot fit.
+
+### `build` — `client/control/factory.py`
+```python
+def build(config: ScenarioConfig) -> SimulationController
+```
+**The composition root** — the one place allowed to know `algo` and `mrta` concretely. Draws
+collision-free starts with `random.Random(seed)`, picks the coordinator, and in MRTA mode always
+attaches a `QueueTaskSource` (so `send_batch_to` works), composing a `RandomTaskSource` alongside
+it when `tasks="random"`. Swapping in a new algorithm or allocator touches this file only.
+
+### `SimulationController` — `client/control/controller.py`
+```python
+class SimulationController:
+    sim: Simulation
+    fleet: FleetManager | None      # MRTA mode only
+    queue: QueueTaskSource | None   # MRTA mode only
+
+    step() -> StepSnapshot                    # pure "advance by one" — owns no clock
+    run(steps) -> list[StepSnapshot]
+    send_batch_to(target, agent_ids=None, priority=5.0) -> list[Task]
+    snapshot() -> StepSnapshot
+```
+The single seam between a built scenario and whatever drives it. `send_batch_to` mints one task
+per destination cell — `target` first, then outwards by BFS over free cells — with
+`eligible=frozenset(agent_ids)`, and pushes them into the queue.
+
+**"Send this batch to B" *is* an allocation problem**: nothing bypasses the planner, so a batch
+move inherits collision avoidance for free. That is why there is no manual per-cell driving
+anywhere in this API. The BFS follows connectivity rather than scanning a radius, so it never
+returns a cell that looks near but sits behind a wall.
+
+### `TaskView` / `StepSnapshot` — `client/view/`
+```python
+@dataclass(frozen=True)
+class TaskView:
+    task_id: int;  target: Position;  state: TaskState
+    priority: float;  assignee_id: int | None;  attempts: int
+    @classmethod
+    def of(task: Task) -> TaskView       # copies VALUES — never holds the Task or its assignee
+
+@dataclass(frozen=True)
+class StepSnapshot:
+    step: int
+    result: PlanResult
+    goals: dict[int, Position]           # from sim.last_intent, not from the coordinator
+    objects: tuple                       # ((Position, kind), ...)
+    tasks: tuple[TaskView, ...]
+    completed: int;  failed: int
+    def counts() -> dict[str, int]       # pending/assigned live + done/failed cumulative
+```
+**Why a projection and not the `Task`**: a `Task` is mutable and owned by `FleetManager`, which
+keeps mutating it (ASSIGNED → DONE) then prunes it. Archiving the task itself would let a stored
+frame rewrite its own past, and a live `task.assignee.position` would contradict the frozen
+`result.positions[id]` *inside the same snapshot*. Reducing the assignee to its `agent_id` is
+the rule `PlanResult` already applies. This is precisely what makes it sound for a frontend to
+keep a history while the engine runs on.
+
+### `Frontend` / `HeadlessFrontend` / `PygameFrontend` — `client/frontends/`
+```python
+class Frontend(ABC):
+    controller: SimulationController
+    def run(steps: int)
+
+class HeadlessFrontend(Frontend):   # terminal, zero pygame
+class PygameFrontend(Frontend):     # PygameFrontend(controller, tick_ms=350)
+```
+`PygameFrontend` holds one board-drawing routine (the three legacy renderers each carried a
+near-identical copy), with **`CELL` derived** from grid size and a window budget instead of the
+old hard-coded 60.
+
+Mouse: click an agent to toggle · drag a rubber band to select · click a cell to dispatch the
+batch. Keys: `Space` play/pause · `→` step · `←` replay back · `A`/`C` select all / clear · `Q`.
+
+- **Fixed-step accumulator**: the frontend owns the clock, so `step()` stays a pure "advance by
+  one". `MAX_STEPS_PER_FRAME` is **not optional** — once a tick costs more than `tick_duration`
+  the backlog grows without bound and the window freezes (spiral of death). The clamp degrades
+  to slow motion instead.
+- **Backward navigation is replay only.** `Grid` and `PriorityManager` are destructive, so the
+  engine has no undo: frozen snapshots make *looking* back safe, not *rewinding*. A deliberate
+  regression against `PIBTInteractiveRenderer`, whose symmetry needs a pre-computed history and
+  is therefore incompatible with interactivity.
+- **No threads**: `Grid`/`Agent` are mutated while read, and PIBT is CPU-bound so the GIL
+  cancels the gain. Concurrency buys nothing and costs correctness.
+
+---
+
+## Legacy renderers in `client/` (used by `demo_pibt.py` only)
+
+Kept as the pre-existing regression path. New work goes through `client/frontends/`.
+They are re-exported lazily from `client/__init__.py` (PEP 562) so importing `client.control`
+or `client.view` never pulls pygame in.
+
 ### `Renderer` — `client/renderer.py`
 ```python
 class Renderer:
@@ -353,18 +506,27 @@ Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coo
 
 ```python
 class TaskState(Enum):             # mrta/task.py
-    PENDING, ASSIGNED, DONE
+    PENDING, ASSIGNED, DONE, FAILED
 
 class Task:                        # mrta/task.py — hashable via task_id
-    task_id: int
+    task_id: int                   # stamped by FleetManager at intake, not by the source
     target: Position
     priority: float
     state: TaskState
     assignee: Agent | None
     created_step: int
+    eligible: frozenset[int] | None    # agent_ids allowed to take it (None = anyone)
+    attempts: int                      # assignees burned through so far
+    best_distance: int | None          # best Manhattan distance ever reached
+    last_improvement_step: int         # step at which best_distance last improved
 
 class TaskSource(ABC):             # mrta/task_source.py
     poll(current_step) -> list[Task]
+
+class QueueTaskSource(TaskSource):    # push / push_many, poll() drains and empties
+class RandomTaskSource(TaskSource):   # (grid, every, count, seed)
+class ScriptedTaskSource(TaskSource): # ({step: [Task]})
+class CompositeTaskSource(TaskSource):# (*sources) — polled in order, concatenated
 
 class Allocator(ABC):              # mrta/allocator.py
     allocate(pending, free, grid) -> dict[Task, Agent]
@@ -372,15 +534,48 @@ class Allocator(ABC):              # mrta/allocator.py
 class FleetManager(Dispatcher):    # mrta/fleet_manager.py — concrete Dispatcher
     source: TaskSource
     allocator: Allocator
+    patience: int                  # steps without progress before releasing an assignee
+    max_attempts: int              # assignees a task may burn before it is FAILED
     tasks: list[Task]
+    completed_count: int
+    failed_count: int
 
-    dispatch(agents, grid, step) -> DispatchIntent  # _complete -> _intake -> _allocate -> _build_intent
+    dispatch(agents, grid, step) -> DispatchIntent
+    #   _complete -> _watchdog -> _prune -> _intake -> _allocate -> _build_intent
     set_priority(task_id, priority)
-    _intake(step)                  # polls source, appends new tasks
-    _allocate(agents, grid)        # matches pending tasks to free agents via allocator
-    _complete(agents)              # marks ASSIGNED tasks as DONE once assignee reaches target
+    _complete(agents)              # ASSIGNED -> DONE once the assignee stands on the target
+    _watchdog(step)                # releases stalled assignees; FAILED past max_attempts
+    _prune()                       # drops terminal tasks, counting them on the way out
+    _intake(step, grid)            # stamps ids; FAILED at once if the target is unreachable
+    _allocate(agents, grid)        # one allocator call per eligibility class, restricted first
     _build_intent() -> DispatchIntent  # goals/priorities of the ASSIGNED tasks
 ```
+
+**Task lifecycle** — `PENDING -> ASSIGNED -> DONE` is nominal; `FAILED` is terminal for
+abandoned work. Two guards close the allocation deadlock a plain three-state lifecycle left open
+(an unreachable target consumed its assignee *forever*, since `_allocate` excludes ASSIGNED
+agents from the free pool — a fleet silently losing robots while looking healthy):
+
+- **static, at intake** — a target off the grid or under a blocking entity is rejected outright;
+- **dynamic, the watchdog** — an assignee that has not improved its Manhattan distance to the
+  target for `patience` steps is released and the task retried; past `max_attempts` distinct
+  assignees, the *target* is blamed and the task FAILED.
+
+We deliberately do **not** try to *prove* a target reachable: reachability is not static in a
+world with `appear_at`, and proving it would duplicate the planner with a rival notion of
+"reachable". We observe the absence of progress instead. Terminal tasks are pruned but
+**counted** — dropping work silently would hide the very deadlock this closes.
+
+The watchdog belongs to `FleetManager` because it is the only component seeing a task *across*
+ticks; in the coordinator it would re-couple navigation with allocation semantics, exactly what
+`DispatchIntent` separated. Full rationale in `rapport_plan.md`.
+
+**Eligibility** — `Task.eligible` restricts who may take a task, so a caller can send a
+*specific* batch somewhere. `_allocate()` groups pending tasks by eligibility class and calls
+the allocator once per class, **restricted classes first** (otherwise an unrestricted task could
+steal a reserved agent), removing matched agents from the pool between calls. The constraint
+lives on the *request*, not on the matching *strategy*, so the `Allocator` interface is
+untouched and new allocators need no adaptation.
 
 `FleetManager` holds **no coordinator reference**: it is pure w.r.t. the engine. It returns a `DispatchIntent`, and `Simulation.step()` passes it to `plan()`. `Simulation` owns the ordering: `Simulation(grid, coordinator, dispatcher=fleet)` and `step()` runs `dispatch()` before `plan()` every tick — the caller no longer sequences them by hand.
 
@@ -403,7 +598,12 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 - **`core/` must never import `client/`, `algo/`, or `mrta/`** — strictly one-directional dependency.
 - **`mrta/` must never import `algo/` or `client/`** — it depends only on `core`.
 - **`algo/` must never import `client/`** — algorithms are pure, no rendering.
-- **Visual/rendering changes -> `client/` only.**
+- **`client/frontends/` must never import `algo/`, nor mrta *behaviour*** (`FleetManager`,
+  `Allocator`, `TaskSource`) — only `core` and the frozen types in `client/view/`. Value types
+  (`Position`, `TaskState`) are fine. Composition belongs in `client/control/`.
+- **Visual/rendering changes -> `client/frontends/` only.**
+- **Never call `SimulationController.step()` in a loop with a sleep** — a frontend owns the
+  clock, and any real-time loop needs the `MAX_STEPS_PER_FRAME` clamp.
 - **Keep the diagrams in sync**: after adding a class or attribute, update `diagrammes/_model.iuml` (the single class-diagram source) and `diagrammes/sequence_tick.puml` (one-tick sequence), and regenerate with `plantuml diagrammes/diagrams.puml diagrammes/sequence_tick.puml`.
   `diagrams.puml` renders `_model.iuml` twice — simple and annotated — driven by the `$ANNOTATED`
   preprocessor flag, so the two class diagrams cannot drift apart. Never edit the generated PNGs.
@@ -425,4 +625,9 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 | `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
 | `DispatchIntent` decouples allocation from navigation | goals/priorities flow only through the intent; no external mutation of the coordinator, so any Coordinator pairs with any Dispatcher |
 | Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
+| Plans are validated, not rolled back | `Simulation._validate()` rejects an inapplicable `PlanResult` **before** any mutation, so the lift/place transaction cannot fail partially |
+| Task identity belongs to the registry | `FleetManager` stamps `task_id` at intake; sources propose tasks without one, so several sources cannot collide (`Task` hashes on `task_id`) |
+| `-inf` demotion is reversible | "at its goal" is a *state*; `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding |
+| Snapshots are projections | `TaskView`/`StepSnapshot` copy values and key on `agent_id`; a snapshot must read identically N steps later |
+| No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
 

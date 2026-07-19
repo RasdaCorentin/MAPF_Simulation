@@ -19,13 +19,18 @@ Folder and file names are in English.
 ├── AGENT.md             — full architecture reference for coding agents
 ├── CLAUDE.md            — pointer that imports AGENT.md
 ├── CONVENTION.md        — this file
+├── rapport_plan.md      — design report on the task lifecycle (French, working doc)
 ├── core/                — pure simulation engine (entities, environment, engine)
 ├── algo/                — MAPF algorithms (coordination, allocation)
 ├── mrta/                — Multi-Robot Task Allocation
-├── client/              — pygame rendering
+├── client/              — presentation
+│   ├── control/         — scripting API, composition root (pygame-free)
+│   ├── view/            — frozen value types (TaskView, StepSnapshot)
+│   └── frontends/       — pygame and headless frontends
 ├── diagrammes/          — PlantUML class diagram sources + generated PNGs
-├── main.py              — random-walk demo entry point
-└── demo_pibt.py         — interactive PIBT demo entry point
+├── main.py              — CLI entry point
+├── demo_pibt.py         — legacy interactive PIBT demo entry point
+└── sim_many_pibt.py     — headless benchmark sweep
 ```
 
 ## Branch naming
