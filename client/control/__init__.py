@@ -1,0 +1,13 @@
+"""Scripting API: build a scenario and drive it. No pygame anywhere.
+
+This is the composition root — the only part of ``client`` allowed to
+import ``algo`` and mrta behaviour, because choosing the algorithm and
+wiring the fleet is precisely its job. Frontends depend on ``client.view``
+instead, and stay ignorant of both.
+"""
+
+from .config import ScenarioConfig
+from .controller import SimulationController
+from .factory import build
+
+__all__ = ["ScenarioConfig", "SimulationController", "build"]
