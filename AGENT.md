@@ -8,12 +8,18 @@
 ## Running the simulation
 
 ```bash
-python main.py          # random-walk demo (5 agents, 20 steps)
-python demo_pibt.py      # interactive PIBT demo (10 agents, keyboard navigation)
-python demo_pibt.py -d   # same, debug mode: terminal print, zero pygame
+python main.py                    # random-walk demo (10x10, 5 agents, 20 steps)
+python demo_pibt.py               # interactive PIBT demo (5x5, 10 agents, keyboard navigation)
+python demo_pibt.py -d            # same, debug mode: terminal print, zero pygame
+python sim_many_pibt.py --seeds 2 # headless L0 benchmark sweep -> sim_results.csv
 ```
 
-Both open a blocking pygame window (except `-d`). Dependencies: `requirements.txt` + pygame (`pip install pygame`).
+The first two open a blocking pygame window (except `-d`). Dependencies: `requirements.txt` + pygame (`pip install pygame`).
+
+**Fastest ways to exercise the code without a window** (use these to verify changes):
+`python demo_pibt.py -d` (PIBT + StaticDispatcher, terminal output) and
+`python sim_many_pibt.py --seeds 2` (full sweep, ~200 instances, a few seconds).
+There is currently **no test suite** — these two are the de-facto regression checks.
 
 ---
 
@@ -398,7 +404,9 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 - **`mrta/` must never import `algo/` or `client/`** — it depends only on `core`.
 - **`algo/` must never import `client/`** — algorithms are pure, no rendering.
 - **Visual/rendering changes -> `client/` only.**
-- **Keep the diagrams in sync**: after adding a class or attribute, update `diagrammes/diag_commente.puml` (class diagram) and `diagrammes/sequence_tick.puml` (one-tick sequence), and regenerate with `plantuml diagrammes/diag_commente.puml diagrammes/sequence_tick.puml`.
+- **Keep the diagrams in sync**: after adding a class or attribute, update `diagrammes/_model.iuml` (the single class-diagram source) and `diagrammes/sequence_tick.puml` (one-tick sequence), and regenerate with `plantuml diagrammes/diagrams.puml diagrammes/sequence_tick.puml`.
+  `diagrams.puml` renders `_model.iuml` twice — simple and annotated — driven by the `$ANNOTATED`
+  preprocessor flag, so the two class diagrams cannot drift apart. Never edit the generated PNGs.
 
 ---
 
@@ -417,3 +425,4 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 | `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
 | `DispatchIntent` decouples allocation from navigation | goals/priorities flow only through the intent; no external mutation of the coordinator, so any Coordinator pairs with any Dispatcher |
 | Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
+
