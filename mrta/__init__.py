@@ -6,7 +6,13 @@ never on algo or client.
 
 from .task import Task, TaskState
 from .task_source import TaskSource
+from .queue_task_source import QueueTaskSource
+from .random_task_source import RandomTaskSource
+from .scripted_task_source import ScriptedTaskSource
 from .allocator import Allocator
 from .fleet_manager import FleetManager
 
-__all__ = ["Task", "TaskState", "TaskSource", "Allocator", "FleetManager"]
+__all__ = [
+    "Task", "TaskState", "TaskSource", "QueueTaskSource",
+    "RandomTaskSource", "ScriptedTaskSource", "Allocator", "FleetManager",
+]
