@@ -44,6 +44,11 @@ class FleetManager(Dispatcher):
         self.tasks: list[Task] = []
         self.completed_count = 0
         self.failed_count = 0
+        # Task identity is stamped here, not by the sources: Task hashes on
+        # task_id and is used as a dict key by Allocator, so two sources
+        # numbering from zero would silently collapse each other's tasks.
+        # The registry owns identity within it.
+        self._next_task_id = 0
 
     def dispatch(self, agents: list[Agent], grid: Grid, step: int) -> DispatchIntent:
         """Input: all simulated agents, the grid, and the current step.
@@ -141,6 +146,8 @@ class FleetManager(Dispatcher):
         be allowed to consume one.
         """
         for task in self.source.poll(step):
+            task.task_id = self._next_task_id
+            self._next_task_id += 1
             if not grid.is_valid(task.target) or self._is_obstructed(task.target, grid):
                 task.state = TaskState.FAILED
                 self.failed_count += 1

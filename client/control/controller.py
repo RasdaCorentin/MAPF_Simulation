@@ -81,8 +81,9 @@ class SimulationController:
         cells = self._free_cells_around(target, len(ids))
         eligible = frozenset(ids)
         tasks = [
+            # task_id is stamped by FleetManager at intake.
             Task(
-                task_id=self.queue.next_id(),
+                task_id=0,
                 target=cell,
                 priority=priority,
                 created_step=self.sim.current_step,

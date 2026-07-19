@@ -33,7 +33,6 @@ class RandomTaskSource(TaskSource):
         self._every = max(1, every)
         self._count = count
         self._rng = random.Random(seed)
-        self._next_id = 0
 
     def poll(self, current_step: int) -> list[Task]:
         """Input: the current simulation step.
@@ -53,13 +52,10 @@ class RandomTaskSource(TaskSource):
             return []
 
         targets = self._rng.sample(free, min(self._count, len(free)))
-        tasks = []
-        for target in targets:
-            tasks.append(Task(
-                task_id=self._next_id,
-                target=target,
-                created_step=current_step,
-                last_improvement_step=current_step,
-            ))
-            self._next_id += 1
-        return tasks
+        return [
+            # task_id is a placeholder: FleetManager stamps a unique one
+            # at intake, so sources never number into each other.
+            Task(task_id=0, target=target, created_step=current_step,
+                 last_improvement_step=current_step)
+            for target in targets
+        ]

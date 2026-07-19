@@ -10,8 +10,9 @@ class QueueTaskSource(TaskSource):
     whenever it likes; ``poll()`` hands over everything queued since the
     last cycle and empties the queue, so no task is ever delivered twice.
 
-    Task ids are handed out by the source, which keeps the caller from
-    having to track a counter and guarantees they stay unique.
+    Pushed tasks need no meaningful ``task_id``: FleetManager stamps a
+    unique one at intake, so several sources can coexist without
+    numbering into each other.
     """
 
     def __init__(self) -> None:
@@ -19,7 +20,6 @@ class QueueTaskSource(TaskSource):
         Output: None. Starts with an empty queue.
         """
         self._queue: list[Task] = []
-        self._next_id = 0
 
     def push(self, task: Task) -> None:
         """Input: a task to deliver at the next poll.
@@ -32,14 +32,6 @@ class QueueTaskSource(TaskSource):
         Output: None.
         """
         self._queue.extend(tasks)
-
-    def next_id(self) -> int:
-        """Input: none.
-        Output: a fresh unique task id.
-        """
-        task_id = self._next_id
-        self._next_id += 1
-        return task_id
 
     def poll(self, current_step: int) -> list[Task]:
         """Input: the current simulation step (unused — availability is

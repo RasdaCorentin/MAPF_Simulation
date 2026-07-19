@@ -9,10 +9,12 @@ from .task_source import TaskSource
 from .queue_task_source import QueueTaskSource
 from .random_task_source import RandomTaskSource
 from .scripted_task_source import ScriptedTaskSource
+from .composite_task_source import CompositeTaskSource
 from .allocator import Allocator
 from .fleet_manager import FleetManager
 
 __all__ = [
     "Task", "TaskState", "TaskSource", "QueueTaskSource",
-    "RandomTaskSource", "ScriptedTaskSource", "Allocator", "FleetManager",
+    "RandomTaskSource", "ScriptedTaskSource", "CompositeTaskSource",
+    "Allocator", "FleetManager",
 ]
