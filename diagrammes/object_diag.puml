@@ -1,0 +1,165 @@
+@startuml object_diagram_post_step1
+
+title Diagramme d'objets - État à la fin du premier tick (current_step = 1)
+
+skinparam objectBorderColor #4A90D9
+skinparam objectBackgroundColor #EAF4FF
+skinparam ArrowColor #333333
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+
+object "ctrl: SimulationController" as ctrl {
+}
+
+object "sim: Simulation" as sim {
+  current_step = 1
+}
+
+object "grid: Grid" as grid {
+  width = 15
+  height = 15
+}
+
+object "fleet: FleetManager" as fleet {
+}
+
+object "source: QueueTaskSource" as source {
+  _next_id = 2
+}
+
+object "allocator: RandomAllocator" as alloc {
+}
+
+object "coord: PIBTCoordinator" as coord {
+}
+
+object "reservations: ReservationTable" as res_table {
+}
+
+object "priorities: PriorityManager" as prio {
+}
+
+object "a1: Agent" as a1 {
+  agent_id = 1
+  steps_taken = 1
+  active = true
+}
+
+object "a2: Agent" as a2 {
+  agent_id = 2
+  steps_taken = 1
+  active = true
+}
+
+object "pos_a1: Position" as pos_a1 {
+  x = 2
+  y = 5
+}
+
+object "pos_a2: Position" as pos_a2 {
+  x = 8
+  y = 2
+}
+
+object "t1: Task" as t1 {
+  task_id = 1
+  priority = 1.0
+  state = TaskState.ASSIGNED
+  created_step = 0
+}
+
+object "target_t1: Position" as target_t1 {
+  x = 10
+  y = 10
+}
+
+object "intent: DispatchIntent" as intent {
+  goals = {1: (10, 10)}
+  priorities = {1: 1.0}
+}
+
+object "snap: StepSnapshot" as snap {
+  step = 1
+}
+
+object "tv1: TaskView" as tv1 {
+  task_id = 1
+  priority = 1.0
+  state = TaskState.ASSIGNED
+  assignee_id = 1
+  created_step = 0
+}
+
+object "target_tv1: Position" as target_tv1 {
+  x = 10
+  y = 10
+}
+
+object "result: PlanResult" as result {
+  positions = {1: (2, 5), 2: (8, 2)}
+}
+
+' ===================================
+' Liens de composition / aggrégation
+' ===================================
+
+ctrl *-- sim : sim
+ctrl ..> snap : "génère"
+
+sim *-- grid : grid
+sim *-- a1 : agents[0]
+sim *-- a2 : agents[1]
+sim o-- coord : coordinator
+sim o-- fleet : dispatcher
+sim *-- intent : last_intent
+
+fleet o-- source : source
+fleet o-- alloc : allocator
+fleet *-- t1 : tasks[0]
+
+coord *-- res_table : _reservations
+coord *-- prio : _priorities
+
+a1 *-- pos_a1 : position
+a2 *-- pos_a2 : position
+
+t1 *-- target_t1 : target
+t1 o-- a1 : assignee
+
+snap *-- result : result
+snap *-- tv1 : tasks[0]
+tv1 *-- target_tv1 : target
+
+' ===================================
+' Notes explicatives
+' ===================================
+
+note right of a1
+  a1 a fait son premier pas, 
+  donc steps_taken = 1.
+end note
+
+note right of t1
+  La tâche a été allouée à a1 par le 
+  FleetManager durant l'étape de dispatch.
+end note
+
+note right of intent
+  L'intention générée par le FleetManager
+  est sauvegardée dans la simulation.
+end note
+
+note bottom of tv1
+  **Projection gelée de t1, pas une référence.**
+  Le snapshot ne pointe JAMAIS vers t1, que le
+  FleetManager continue de muter (ASSIGNED -> DONE)
+  puis d'élaguer : sinon une vue archivée réécrirait
+  son propre passé, et tv1.assignee (vivant)
+  contredirait result.positions (gelé).
+  D'où assignee_id = 1, un entier — jamais a1.
+
+  Aucun chemin ne redescend de snap vers le moteur :
+  le graphe reste un DAG, sans losange d'aliasing.
+end note
+
+@enduml
