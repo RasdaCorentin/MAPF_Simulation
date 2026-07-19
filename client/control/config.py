@@ -19,6 +19,13 @@ class ScenarioConfig:
     mode: str = "mrta"      # "mrta" | "static"
     seed: int = 0
 
+    # Background task generation, on top of the interactive queue that is
+    # always present in MRTA mode. "none" leaves the fleet idle until
+    # something asks for work; "random" keeps it busy on its own.
+    tasks: str = "none"     # "none" | "random"
+    task_every: int = 5
+    task_count: int = 2
+
     # MRTA watchdog tuning — see FleetManager.
     patience: int = 12
     max_attempts: int = 3
@@ -31,6 +38,8 @@ class ScenarioConfig:
             raise ValueError(f"Unknown algo {self.algo!r} (expected 'pibt' or 'random').")
         if self.mode not in ("mrta", "static"):
             raise ValueError(f"Unknown mode {self.mode!r} (expected 'mrta' or 'static').")
+        if self.tasks not in ("none", "random"):
+            raise ValueError(f"Unknown tasks {self.tasks!r} (expected 'none' or 'random').")
         if self.agents + self.obstacles > self.width * self.height:
             raise ValueError(
                 f"{self.agents} agents + {self.obstacles} obstacles do not fit "

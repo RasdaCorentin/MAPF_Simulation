@@ -2,7 +2,9 @@ import random
 
 from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity
 from algo import PIBTCoordinator, RandomWalkCoordinator, RandomAllocator
-from mrta import FleetManager, QueueTaskSource
+from mrta import (
+    CompositeTaskSource, FleetManager, QueueTaskSource, RandomTaskSource,
+)
 
 from .config import ScenarioConfig
 from .controller import SimulationController
@@ -34,9 +36,18 @@ def build(config: ScenarioConfig) -> SimulationController:
 
     fleet = queue = None
     if config.mode == "mrta":
+        # The interactive queue is always present so send_batch_to() works;
+        # a background generator is composed alongside it when asked for.
         queue = QueueTaskSource()
+        source = queue
+        if config.tasks == "random":
+            source = CompositeTaskSource(
+                queue,
+                RandomTaskSource(grid, every=config.task_every,
+                                 count=config.task_count, seed=config.seed),
+            )
         fleet = FleetManager(
-            source=queue,
+            source=source,
             allocator=RandomAllocator(),
             patience=config.patience,
             max_attempts=config.max_attempts,
