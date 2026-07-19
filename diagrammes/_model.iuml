@@ -129,6 +129,7 @@ package "core" #EAF4FF {
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
             + step() : PlanResult
+            - _validate(result: PlanResult) : void
             + __repr__() : str
         }
     }
@@ -139,48 +140,59 @@ package "client" #FFF5EA {
     ' ── PART 1: scripting API (pygame-free, reusable by any script) ──
     package "control" {
         class ScenarioConfig $st("value object") {
-            + width    : int = 15
-            + height   : int = 15
-            + n_agents : int = 20
-            + algo     : str = "pibt"
-            + mode     : str = "mrta"
-            + steps    : int
-            + seed     : int
+            + width        : int = 15
+            + height       : int = 15
+            + agents       : int = 20
+            + obstacles    : int = 0
+            + algo         : str = "pibt"
+            + mode         : str = "mrta"
+            + seed         : int = 0
+            + tasks        : str = "none"
+            + task_every   : int = 5
+            + task_count   : int = 2
+            + patience     : int = 12
+            + max_attempts : int = 3
         }
 
-        class SimulationFactory $st("Factory") {
+        class factory $st("Factory") {
             + {static} build(config: ScenarioConfig) : SimulationController
         }
 
         class SimulationController $st("Facade") {
-            + sim    : Simulation
-            + config : ScenarioConfig
-            - _tasks : QueueTaskSource | None
+            + sim   : Simulation
+            + fleet : FleetManager | None
+            + queue : QueueTaskSource | None
             --
             + step() : StepSnapshot
             + run(steps: int) : list[StepSnapshot]
-            + send_batch_to(target: Position, agent_ids: list[int], count: int) : list[Task]
+            + send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
             + snapshot() : StepSnapshot
-            - _ring_cells(target: Position, count: int) : list[Position]
+            - _free_cells_around(target: Position, count: int) : list[Position]
         }
     }
 
     package "view" {
         class TaskView $st("value object") {
-            + task_id      : int
-            + target       : Position
-            + priority     : float
-            + state        : TaskState
-            + assignee_id  : int | None
-            + created_step : int
+            + task_id     : int
+            + target      : Position
+            + state       : TaskState
+            + priority    : float
+            + assignee_id : int | None
+            + attempts    : int
+            --
+            + {static} of(task: Task) : TaskView
         }
 
         class StepSnapshot $st("DTO") {
-            + step    : int
-            + result  : PlanResult
-            + goals   : dict[int, Position]
-            + objects : list[tuple]
-            + tasks   : list[TaskView]
+            + step      : int
+            + result    : PlanResult
+            + goals     : dict[int, Position]
+            + objects   : tuple
+            + tasks     : tuple[TaskView]
+            + completed : int
+            + failed    : int
+            --
+            + counts() : dict[str, int]
         }
     }
 
@@ -189,31 +201,38 @@ package "client" #FFF5EA {
         abstract class Frontend $st("Strategy") {
             + controller : SimulationController
             --
-            + {abstract} run() : void
+            + {abstract} run(steps: int) : void
         }
 
         class PygameFrontend {
-            - _cell    : int
-            - _sidebar : Sidebar
+            + tick_ms   : int
+            + cell      : int
+            + selection : set[int]
+            + history   : list[StepSnapshot]
+            + cursor    : int
+            + playing   : bool
             --
-            + run() : void
-            - _fit_cell_size() : int
-            - _draw_grid(snap: StepSnapshot) : void
-            - _draw_tasks(snap: StepSnapshot) : void
+            + run(steps: int) : void
+            - _cell_size() : int
+            - _handle(event, grid_w: int, panel: Sidebar)
+            - _release(start, end) : void
+            - _agents_in_band(start, end) : set[int]
+            - _advance() : void
+            - _at_present() : bool
+            - _draw_board(screen, snap: StepSnapshot, fonts) : void
         }
 
         class Sidebar {
-            - _selected : set[int]
-            - _target   : Position | None
+            + height  : int
+            + buttons : dict[str, Rect]
             --
-            + handle_event(event) : void
-            + draw(surface, snap: StepSnapshot) : void
-            - _send_batch() : void
+            + draw(screen, origin_x, snap, selection, playing, replaying, fonts) : void
+            + hit(position, origin_x) : str | None
         }
 
         class HeadlessFrontend {
-            + run() : void
-            - _print_snapshot(snap: StepSnapshot) : void
+            + run(steps: int) : void
+            - _print(snap: StepSnapshot, total: int) : void
         }
     }
 }
@@ -224,15 +243,20 @@ package "mrta" #FFF0F5 {
         PENDING
         ASSIGNED
         DONE
+        FAILED
     }
 
     class Task {
-        + task_id      : int
-        + target       : Position
-        + priority     : float
-        + state        : TaskState
-        + assignee     : Agent | None
-        + created_step : int
+        + task_id               : int
+        + target                : Position
+        + priority              : float
+        + state                 : TaskState
+        + assignee              : Agent | None
+        + created_step          : int
+        + eligible              : frozenset[int] | None
+        + attempts              : int
+        + best_distance         : int | None
+        + last_improvement_step : int
     }
 
     abstract class TaskSource $st("Strategy") {
@@ -240,18 +264,18 @@ package "mrta" #FFF0F5 {
     }
 
     class QueueTaskSource {
-        - _queue   : list[Task]
-        - _next_id : int
+        - _queue : list[Task]
         --
-        + push(target: Position, priority: float) : Task
-        + push_many(targets: list[Position], priority: float) : list[Task]
+        + push(task: Task) : void
+        + push_many(tasks: list[Task]) : void
         + poll(current_step: int) : list[Task]
     }
 
     class RandomTaskSource {
-        - _rng  : Random
-        - _rate : float
-        - _grid : Grid
+        - _grid  : Grid
+        - _every : int
+        - _count : int
+        - _rng   : Random
         --
         + poll(current_step: int) : list[Task]
     }
@@ -262,21 +286,34 @@ package "mrta" #FFF0F5 {
         + poll(current_step: int) : list[Task]
     }
 
+    class CompositeTaskSource {
+        + sources : list[TaskSource]
+        --
+        + poll(current_step: int) : list[Task]
+    }
+
     abstract class Allocator $st("Strategy") {
         + {abstract} allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
     }
 
     class FleetManager {
-        + source    : TaskSource
-        + allocator : Allocator
-        + tasks     : list[Task]
+        + source          : TaskSource
+        + allocator       : Allocator
+        + patience        : int
+        + max_attempts    : int
+        + tasks           : list[Task]
+        + completed_count : int
+        + failed_count    : int
+        - _next_task_id   : int
         --
         + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         + set_priority(task_id: int, priority: float) : void
-        - _intake(step: int) : void
-        - _allocate(agents: list[Agent], grid: Grid) : void
         - _complete(agents: list[Agent]) : void
+        - _watchdog(step: int) : void
         - _prune() : void
+        - _intake(step: int, grid: Grid) : void
+        - _allocate(agents: list[Agent], grid: Grid) : void
+        - _by_eligibility(pending: list[Task]) : list[tuple]
         - _build_intent() : DispatchIntent
     }
 }
@@ -305,6 +342,7 @@ package "algo" #F0FFF0 {
             --
             + update(agents: list[Agent]) : void
             + get_priority(agent: Agent) : float
+            + get_base(agent: Agent) : float
             + set_base(agent: Agent, p: float) : void
         }
 
@@ -315,6 +353,7 @@ package "algo" #F0FFF0 {
             - _processed    : set[Agent]
             - _inheritance  : list[tuple[Agent, Agent]]
             - _last_intent  : dict[int, tuple]
+            - _demoted      : dict[Agent, float]
             --
             + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
             - _apply_intent(agents: list[Agent], intent: DispatchIntent) : void
@@ -363,11 +402,11 @@ PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
 PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
 
 ' ── Client PART 1: the scripting API (composition root) ───────────
-SimulationFactory ..> ScenarioConfig       : «reads»
-SimulationFactory ..> SimulationController : «creates»
+factory ..> ScenarioConfig       : «reads»
+factory ..> SimulationController : «creates»
 SimulationController "1" o-- "1" Simulation         : sim
-SimulationController "1" *-- "1" ScenarioConfig     : config
-SimulationController "1" o-- "0..1" QueueTaskSource : _tasks (MRTA mode)
+SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
+SimulationController "1" o-- "0..1" QueueTaskSource : queue (MRTA mode)
 SimulationController ..> StepSnapshot : «builds»
 SimulationController ..> TaskView    : «projects Task ->»
 StepSnapshot "1" *-- "1" PlanResult  : result
@@ -379,8 +418,8 @@ Frontend "1" o-- "1" SimulationController : controller
 Frontend <|.. PygameFrontend
 Frontend <|.. HeadlessFrontend
 Frontend ..> StepSnapshot : «reads»
-PygameFrontend "1" *-- "1" Sidebar : _sidebar
-Sidebar ..> SimulationController : «send_batch_to»
+PygameFrontend ..> Sidebar : «draws»
+PygameFrontend "1" *-- "0..*" StepSnapshot : history (replay)
 
 ' ── MRTA ──────────────────────────────────────────────────────────
 Task "1" *-- "1" TaskState : state
@@ -391,6 +430,8 @@ Allocator <|.. KDTreeGreedyAllocator
 TaskSource <|.. QueueTaskSource
 TaskSource <|.. RandomTaskSource
 TaskSource <|.. ScriptedTaskSource
+TaskSource <|.. CompositeTaskSource
+CompositeTaskSource "1" o-- "1..*" TaskSource : sources
 
 Dispatcher <|.. FleetManager
 Dispatcher <|.. StaticDispatcher
@@ -474,11 +515,44 @@ end note
 
 note right of TaskSource
   **Strategy — where work comes from**
-  QueueTaskSource   : fed from outside (sidebar, scripts)
-  RandomTaskSource  : autonomous runs & benchmarks (seeded)
-  ScriptedTaskSource: {step: [Task]} — deterministic tests
+  QueueTaskSource    : fed from outside (sidebar, scripts)
+  RandomTaskSource   : autonomous runs & benchmarks (seeded)
+  ScriptedTaskSource : {step: [Task]} — deterministic tests
+  CompositeTaskSource: merges several — a manual queue AND
+                       background load, without a special
+                       case inside FleetManager.
   Until these existed, mrta was abstract-only and
   FleetManager was not instantiable anywhere.
+
+  Task ids are stamped by FleetManager at intake, not by
+  the sources: Task hashes on task_id and is an Allocator
+  dict key, so two sources numbering from 0 would silently
+  collapse each other's tasks.
+end note
+
+note bottom of FleetManager
+  **Task lifecycle — closing the allocation deadlock**
+  An unreachable target used to consume its assignee
+  FOREVER: _allocate() excludes ASSIGNED agents, so the
+  fleet lost a robot while navigation still looked
+  perfectly healthy. Two guards:
+    intake   — static: target off-grid or under a blocker
+    watchdog — dynamic: no Manhattan progress for
+               `patience` steps -> release the agent,
+               retry; past `max_attempts` -> FAILED
+  We do NOT prove reachability: it is not static under
+  appear_at, and proving it would duplicate the planner
+  with a rival notion of "reachable". We observe the
+  ABSENCE OF PROGRESS instead.
+  Terminal tasks are pruned but COUNTED — dropping work
+  silently would hide the very deadlock this fixes.
+  The watchdog lives here because FleetManager is the only
+  component that sees a task ACROSS ticks.
+
+  _allocate() groups pending tasks by Task.eligible and
+  calls the allocator once per class, restricted first.
+  Eligibility belongs to the REQUEST, not to the matching
+  STRATEGY — so the Allocator interface stays untouched.
 end note
 
 note right of SimulationController
@@ -493,14 +567,20 @@ note right of SimulationController
 end note
 
 note bottom of Sidebar
-  **The sidebar is NOT a Dispatcher**
+  **The UI is NOT a Dispatcher**
   Sending a batch to B is a task-ALLOCATION problem, so the
-  sidebar is a task SOURCE, not a rival source of goals:
-    Sidebar -> QueueTaskSource -> FleetManager
-            -> DispatchIntent  -> PIBTCoordinator
+  interaction feeds a task SOURCE rather than becoming a
+  rival source of goals:
+    click -> send_batch_to -> QueueTaskSource
+          -> FleetManager  -> DispatchIntent
+          -> PIBTCoordinator
   Nothing bypasses the planner, so batch moves inherit
   collision avoidance for free, and the coordinator is
-  never mutated from outside.
+  never mutated from outside. That is why there is no
+  manual per-cell driving anywhere in the API.
+
+  Sidebar itself is pure drawing: it reports where its
+  buttons are, PygameFrontend decides what a click MEANS.
 end note
 
 note right of TaskView
