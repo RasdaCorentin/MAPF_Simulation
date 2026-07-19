@@ -56,6 +56,9 @@ class PIBTCoordinator(Coordinator):
         # priority ONLY when the allocation intent actually changes, so the
         # dynamic priority drift (anti-starvation) is never clobbered.
         self._last_intent: dict[int, tuple[Optional[Position], Optional[float]]] = {}
+        # Base priority overwritten by the goal-reached -inf demotion, kept so
+        # the demotion can be undone when the agent is no longer at its goal.
+        self._demoted: dict[Agent, float] = {}
 
     # ── Heuristic ────────────────────────────────────────────────────────────
 
@@ -149,6 +152,8 @@ class PIBTCoordinator(Coordinator):
             key = (intent.goals.get(aid), prio)
             if self._last_intent.get(aid) != key:
                 self._priorities.set_base(agent, prio)
+                # A freshly seeded base wins over any pending restore.
+                self._demoted.pop(agent, None)
             self._last_intent[aid] = key
 
     def plan(self, agents: list[Agent], grid: Grid, intent: DispatchIntent) -> PlanResult:
@@ -163,9 +168,18 @@ class PIBTCoordinator(Coordinator):
 
         self._priorities.update(agents)
 
+        # "At its goal" is a *state*, so the -inf demotion it triggers must be
+        # undone as soon as the state stops holding — the goal moved, or the
+        # agent was pushed off it by priority inheritance. Writing -inf into
+        # the base without ever restoring it stranded the agent at the bottom
+        # of the ranking for the rest of the run.
         for agent in agents:
             if agent.position == self.goals.get(agent):
-                self._priorities.set_base(agent, float("-inf"))
+                if agent not in self._demoted:
+                    self._demoted[agent] = self._priorities.get_base(agent)
+                    self._priorities.set_base(agent, float("-inf"))
+            elif agent in self._demoted:
+                self._priorities.set_base(agent, self._demoted.pop(agent))
 
         self._reservations.clear()
         self._processed.clear()

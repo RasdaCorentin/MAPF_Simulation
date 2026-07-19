@@ -1,3 +1,4 @@
+from math import isinf
 from typing import Optional
 
 from core import Agent
@@ -41,11 +42,29 @@ class PriorityManager:
         """
         return self._dynamic[agent]
 
+    def get_base(self, agent: Agent) -> float:
+        """Input: an agent.
+        Output: its current base priority, undecayed — what a caller must
+        save before overwriting the base if it intends to restore it.
+        """
+        return self._base[agent]
+
     def set_base(self, agent: Agent, p: float) -> None:
         """Input: an agent and its new base priority.
         Output: None. Also updates the effective priority immediately —
         used for the goal-reached ``-inf`` demotion and for priority
         inheritance boosts, both of which must take effect this step.
+
+        The accumulated anti-starvation drift (``dynamic - base``) is
+        carried over rather than flattened: an agent handed a new task
+        must not lose the waiting credit it built up. Infinities are
+        excluded from the arithmetic — ``-inf - -inf`` is ``nan``, which
+        would corrupt the ranking in ``plan()`` without raising.
         """
+        old_base = self._base.get(agent)
+        if old_base is None or isinf(old_base) or isinf(p):
+            drift = 0.0
+        else:
+            drift = self._dynamic[agent] - old_base
         self._base[agent] = p
-        self._dynamic[agent] = p
+        self._dynamic[agent] = p + drift
