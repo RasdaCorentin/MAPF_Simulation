@@ -17,8 +17,11 @@ inotifywait -m \
   --format '%f' \
   "$DIR" | while read CHANGED; do
 
-  if [[ "$CHANGED" == "$FILE" ]]; then
-    echo "♻️  Regénération PlantUML..."
+  # Regenerate on the watched file itself, but also on any .iuml it
+  # includes: diagrams.puml holds no model, everything lives in
+  # _model.iuml, so editing only the include must still trigger a build.
+  if [[ "$CHANGED" == "$FILE" || "$CHANGED" == *.iuml ]]; then
+    echo "♻️  Regénération PlantUML ($CHANGED)..."
     plantuml "$DIR/$FILE"
   fi
 done
