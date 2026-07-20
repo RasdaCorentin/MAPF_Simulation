@@ -103,10 +103,16 @@ object "result: PlanResult" as result {
 ' Liens de composition / aggrégation
 ' ===================================
 
-ctrl *-- sim : sim
+' Losanges : même convention que le diagramme de classe — plein pour une
+' valeur immuable ou un objet mutable à propriétaire unique, creux pour un
+' objet mutable dont l'instance est partagée.
+ctrl o-- sim : sim
 ctrl ..> snap : "génère"
 
-sim *-- grid : grid
+' Creux : la grille est construite par la factory, qui la partage entre la
+' simulation et les sources de tâches. La simulation la pilote, elle ne la
+' possède pas en exclusivité.
+sim o-- grid : grid
 sim *-- a1 : agents[0]
 sim *-- a2 : agents[1]
 sim o-- coord : coordinator
