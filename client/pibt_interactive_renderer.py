@@ -176,7 +176,7 @@ class PIBTInteractiveRenderer:
         Output: None. Runs the interactive pygame event loop.
         """
         import pygame
-        from client.renderer import AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK
+        from client.palette import AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK
 
         n_agents = len(history[0].result.positions)
         total    = len(history) - 1
@@ -301,7 +301,7 @@ class PIBTInteractiveRenderer:
         Output: None. Draws the header bar.
         """
         import pygame
-        from client.renderer import DARK
+        from client.palette import DARK
         pygame.draw.rect(screen, HDR_BG, (0, 0, w, MARGIN))
         label  = "Initial" if snap.step == 0 else f"Step {snap.step} / {total}"
         status = "▶ play" if playing else "⏸ pause"
@@ -316,7 +316,7 @@ class PIBTInteractiveRenderer:
         Output: None. Draws the grid, goals, obstacles and agents.
         """
         import pygame
-        from client.renderer import AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK
+        from client.palette import AGENT_COLORS, OBJ_COLORS, BG_A, BG_B, GRID_C, BLACK, WHITE, DARK
         n_cols, n_rows = self.sim.grid.width, self.sim.grid.height
 
         for x in range(n_cols):
@@ -366,7 +366,7 @@ class PIBTInteractiveRenderer:
         Output: None. Draws the per-agent priority/move/inheritance rows.
         """
         import pygame
-        from client.renderer import AGENT_COLORS, DARK
+        from client.palette import AGENT_COLORS, DARK
         pygame.draw.line(screen, SEP, (0, footer_top), (w, footer_top), 1)
 
         if snap.step == 0:

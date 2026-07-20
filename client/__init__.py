@@ -17,11 +17,12 @@ would pay for a display library it does not use.
 """
 
 _LAZY = {
-    "Renderer":                 ".renderer",
-    "PIBTRenderer":             ".pibt_renderer",
     "PIBTInteractiveRenderer":  ".pibt_interactive_renderer",
-    "StepSnapshot":             ".pibt_interactive_renderer",
 }
+# ``StepSnapshot`` is deliberately NOT re-exported here. The legacy renderer
+# defines its own, distinct from ``client.view.StepSnapshot``: exposing both
+# under one package meant ``from client import StepSnapshot`` and
+# ``from client.view import StepSnapshot`` silently returned different types.
 
 __all__ = list(_LAZY)
 

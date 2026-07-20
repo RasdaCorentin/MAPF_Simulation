@@ -19,9 +19,11 @@ To build your own demo:
   3. Build the simulation: Simulation(grid, coordinator=my_algo, dispatcher=d).
   4. Add agents and entities via sim.add_agent() / sim.add_object().
   5. Launch with:
-       PIBTInteractiveRenderer(sim).run(steps=25)  # with navigation
-       PIBTRenderer(sim).run(steps=30, pause=0.3)  # read-only playback
-       Renderer(sim).run(steps=30, pause=0.3)      # no PIBT overlay
+       PIBTInteractiveRenderer(sim).run(steps=25)   # window, navigable
+       PIBTInteractiveRenderer(sim).run_debug(20)   # terminal, no pygame
+
+New work should go through client.control + client.frontends instead —
+see main.py. This demo is kept as the pre-existing regression path.
 
 To add your own algorithm:
   -> see algo/coordination/random_walk.py for a minimal example.
