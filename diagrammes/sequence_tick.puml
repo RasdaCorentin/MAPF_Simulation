@@ -36,10 +36,46 @@ activate Fleet
       ASSIGNED task whose assignee
       reached its target -> DONE
     end note
-    Fleet -> TaskSource : poll(step)
-    TaskSource --> Fleet : new tasks
-    Fleet -> Allocator : allocate(pending, free, grid)
-    Allocator --> Fleet : {task -> agent}
+    Fleet -> Fleet : _watchdog(step)
+    note right of Fleet
+      An assignee that has not improved its Manhattan
+      distance to the target for `patience` steps is
+      released and the task retried; past `max_attempts`
+      assignees the task is FAILED. This is what stops an
+      unreachable target from holding a robot hostage.
+    end note
+
+    Fleet -> Fleet : _prune()
+    note right of Fleet
+      DONE / FAILED tasks leave the list, but are counted
+      on the way out — dropping them silently would hide
+      the deadlock the watchdog exists to close.
+    end note
+
+    Fleet -> Fleet : _intake(step, grid)
+    activate Fleet
+        Fleet -> TaskSource : poll(step)
+        TaskSource --> Fleet : new tasks
+        note right of Fleet
+          task_id is stamped HERE, not by the source, so
+          two sources cannot collide. A target off-grid or
+          under a blocking entity is FAILED immediately.
+        end note
+    deactivate Fleet
+
+    Fleet -> Fleet : _allocate(agents, grid)
+    activate Fleet
+        loop each eligibility class, restricted classes first
+            Fleet -> Allocator : allocate(pending, free, grid)
+            Allocator --> Fleet : {task -> agent}
+        end
+        note right of Fleet
+          Restricted first: an unrestricted task could
+          otherwise steal an agent reserved by eligibility.
+          Matched agents leave the free pool between calls.
+        end note
+    deactivate Fleet
+
     Fleet -> Fleet : _build_intent()
     Fleet --> Simulation : DispatchIntent
 deactivate Fleet
@@ -59,7 +95,17 @@ activate Coord
     Coord --> Simulation : PlanResult
 deactivate Coord
 
-== 4. Apply moves (lift-then-place transaction) ==
+== 4. Validate the plan, before any mutation ==
+Simulation -> Simulation : _validate(result)
+note right of Simulation
+  Rejects an inapplicable plan — a target off the grid,
+  onto a blocking entity, or claimed by two agents at
+  once — BEFORE the grid is touched. The transaction
+  below has no rollback, so it must not be able to fail
+  halfway and leave agents lifted off the grid.
+end note
+
+== 5. Apply moves (lift-then-place transaction) ==
 loop each moving agent
     Simulation -> Grid : remove(agent)
 end
