@@ -1,0 +1,184 @@
+@startuml report_diagram
+
+' =====================================================================
+'  report/ — the experiment log, documented on its own.
+'
+'  Kept OUT of the main class diagram on purpose. It is a debugging aid
+'  still being validated, and it is orthogonal to the simulation: the
+'  engine, the fleet and the algorithms are unaware it exists. Folding
+'  five more classes into the main diagram would have cost the reader
+'  more than it told them.
+'
+'  The single point of contact with the rest of the project is
+'  SimulationDriver, drawn here as an external reference.
+'
+'  Regenerate:  plantuml diagrammes/report_diagram.puml
+' =====================================================================
+
+title report — Experiment log (opt-in, behind main.py --log)
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam ArrowColor #333333
+skinparam ClassBorderColor #4A90D9
+skinparam ClassBackgroundColor #EAF4FF
+skinparam ClassHeaderBackgroundColor #4A90D9
+skinparam ClassHeaderFontColor #FFFFFF
+skinparam PackageBorderColor #888888
+skinparam PackageBackgroundColor #F8F8F8
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+skinparam linetype ortho
+
+' ─────────────────────────────────────────────────────────────────────
+'  External: the one seam report attaches to.
+' ─────────────────────────────────────────────────────────────────────
+package "client · control" #EEEEEE {
+    abstract class SimulationDriver <<Strategy>> #FFFFFF {
+        + {abstract} step() : StepSnapshot
+        + {abstract} run(steps: int) : list[StepSnapshot]
+        + {abstract} snapshot() : StepSnapshot
+        + {abstract} send_batch_to(...) : list[Task]
+    }
+    class SimulationController <<Facade>> #FFFFFF {
+    }
+}
+
+' ─────────────────────────────────────────────────────────────────────
+'  report
+' ─────────────────────────────────────────────────────────────────────
+package "report" #F0FFF0 {
+
+    class RunCollector <<Decorator>> {
+        - _controller : SimulationDriver
+        - _config     : ScenarioConfig
+        - _label      : str
+        --
+        .. driving (forwarded) ..
+        + sim / fleet / queue
+        + step() : StepSnapshot
+        + run(steps: int) : list[StepSnapshot]
+        + snapshot() : StepSnapshot
+        + send_batch_to(...) : list[Task]
+        .. measuring ..
+        - _observe()       : void
+        - _observe_tasks() : void
+        - _observe_agents(): void
+        + record(label: str = None) : RunRecord
+    }
+    note bottom of RunCollector
+      **Measures a run without the run knowing**
+      It wraps a driver and implements the same interface, so a frontend
+      drives it exactly as it drives the controller. Only ``main.py --log``
+      builds one; without the flag the frontend gets the controller itself
+      and nothing here runs.
+
+      It observes from the OUTSIDE, through public attributes only
+      (``fleet.tasks``, ``fleet.completed_count``, ``sim.last_intent``).
+      Nothing reaches into FleetManager's internals, which is what lets the
+      metrics be reworked — and they will be — without the engine or the
+      fleet changing.
+
+      Per-tick observation is not an optimisation: FleetManager prunes a
+      task on the very tick it ends, so a transition not caught live is
+      gone for good.
+    end note
+
+    class RunRecord <<value object>> {
+        .. identity ..
+        + run_id, timestamp, schema_version, git_rev, label
+        .. scenario ..
+        + width, height, agents, obstacles, algo, mode
+        + task_source, seed, patience, max_attempts
+        .. run ..
+        + steps, wall_ms, step_ms_mean
+        .. tasks ..
+        + tasks_created / done / failed / unfinished
+        + completion_rate, failed_unreachable, failed_stalled
+        + reassignments, attempts_max
+        .. latency ..
+        + wait_mean / max, service_mean / max, detour_mean / max
+        .. drift ..
+        + drift_agents, drift_mean, drift_max
+        + displaced_events, goalless_frac
+        .. occupancy ..
+        + busy_frac, idle_max
+        --
+        + {static} columns() : list[str]
+        + as_row() : dict
+        + {static} sql_create_table(table: str) : str
+    }
+    note right of RunRecord
+      **One schema, two renderings**
+      Every field is a plain scalar, because a CSV header and a SQL table
+      are the same record shown twice — anything nested would serialise to
+      CSV and then have nowhere to go in a relational column.
+      ``sql_create_table()`` sits next to the dataclass so the relational
+      shape cannot drift from it, and resolves types through
+      ``typing.get_type_hints`` rather than by parsing annotation text:
+      guessing from the repr silently mistypes exactly the Optional columns.
+      ``schema_version`` rides on every row, so a dataset spanning code
+      changes stays interpretable; ``git_rev`` + ``seed`` are what make a
+      row reproducible after the fact.
+    end note
+
+    abstract class ResultSink <<Strategy>> {
+        + {abstract} append(record: RunRecord) : void
+    }
+
+    class CsvSink {
+        + path : Path
+        --
+        + append(record: RunRecord) : void
+        - _check_header(columns: list[str]) : void
+    }
+    note bottom of CsvSink
+      **Appending to a changed schema raises.**
+      A new column would otherwise shift every later value one place left,
+      producing a file that still parses and is quietly wrong.
+      Swapping in SQL later is one new ResultSink subclass and nothing
+      else — verified by loading the CSV into sqlite with
+      ``sql_create_table()`` unedited.
+    end note
+
+    class NullSink {
+        + append(record: RunRecord) : void
+    }
+}
+
+' ─────────────────────────────────────────────────────────────────────
+'  Relations
+' ─────────────────────────────────────────────────────────────────────
+SimulationDriver <|.. SimulationController
+SimulationDriver <|.. RunCollector
+RunCollector "1" o-- "1" SimulationDriver : "_controller (decorates)"
+RunCollector ..> RunRecord : «produces»
+
+ResultSink <|.. CsvSink
+ResultSink <|.. NullSink
+ResultSink ..> RunRecord : «reads»
+
+note as N1
+  **How main.py wires it**
+    driver = build(config)
+    if --log:  driver = RunCollector(driver, config)
+    Frontend(driver).run(steps)
+    finally:   CsvSink(--log).append(driver.record())
+
+  The record is written in a ``finally``, so a window closed by hand or a
+  Ctrl-C still yields an observation — losing those is how a session's
+  worth of experiments quietly goes missing. A logging failure is reported
+  without masking the reason the run ended: if the run itself raised, that
+  traceback is the useful one.
+end note
+N1 .. RunCollector
+
+legend bottom left
+  **Status: under validation.**
+  Kept out of the main class diagram deliberately — this is a debugging
+  aid, orthogonal to the simulation. core, mrta, algo and the frontends
+  are all unaware it exists, and ``report`` reaches the rest of the
+  project through exactly one seam: SimulationDriver.
+end legend
+
+@enduml
