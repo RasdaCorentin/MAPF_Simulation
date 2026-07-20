@@ -28,6 +28,7 @@ Folder and file names are in English.
 │   ├── view/            — frozen value types (TaskView, StepSnapshot)
 │   └── frontends/       — pygame and headless frontends
 ├── diagrammes/          — PlantUML class diagram sources + generated PNGs
+├── report/              — experiment log (RunRecord, sinks, collector)
 ├── main.py              — CLI entry point
 ├── demo_pibt.py         — legacy interactive PIBT demo entry point
 └── sim_many_pibt.py     — headless benchmark sweep

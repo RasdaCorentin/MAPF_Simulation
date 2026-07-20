@@ -19,6 +19,7 @@ client.control.build()'s job, and driving it is the frontend's.
 import argparse
 
 from client.control import ScenarioConfig, build
+from report import CsvSink, NullSink, RunCollector
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +44,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed",      type=int, default=0)
     parser.add_argument("--tick-ms",   type=int, default=350,
                         help="wall-clock duration of one step, pygame only")
+    parser.add_argument("--results",   type=str, default="experiments.csv",
+                        help="CSV appended with one row per run (default: experiments.csv)")
+    parser.add_argument("--no-results", action="store_true",
+                        help="run without logging the experiment")
+    parser.add_argument("--label",     type=str, default="",
+                        help="free-text tag stored with this run")
     return parser.parse_args()
 
 
@@ -50,7 +57,7 @@ def main() -> None:
     """Input: none. Output: None. Builds the scenario and runs it."""
     args = parse_args()
 
-    controller = build(ScenarioConfig(
+    config = ScenarioConfig(
         width=args.width,
         height=args.height,
         agents=args.agents,
@@ -59,14 +66,33 @@ def main() -> None:
         mode=args.mode,
         tasks=args.tasks,
         seed=args.seed,
-    ))
+    )
 
-    if args.frontend == "headless":
-        from client.frontends import HeadlessFrontend
-        HeadlessFrontend(controller).run(args.steps or 20)
-    else:
-        from client.frontends import PygameFrontend
-        PygameFrontend(controller, tick_ms=args.tick_ms).run(args.steps)
+    # The collector decorates the controller, so the frontends drive it
+    # unchanged and never learn they are being measured.
+    collector = RunCollector(build(config), config, label=args.label)
+    sink = NullSink() if args.no_results else CsvSink(args.results)
+
+    try:
+        if args.frontend == "headless":
+            from client.frontends import HeadlessFrontend
+            HeadlessFrontend(collector).run(args.steps or 20)
+        else:
+            from client.frontends import PygameFrontend
+            PygameFrontend(collector, tick_ms=args.tick_ms).run(args.steps)
+    finally:
+        # Logged even on Ctrl-C or a closed window: a run that was interrupted
+        # is still an observation, and losing it is how a session's worth of
+        # experiments quietly goes missing.
+        record = collector.record()
+        try:
+            sink.append(record)
+            if not args.no_results:
+                print(f"\nrun {record.run_id} ({record.steps} steps) -> {args.results}")
+        except Exception as exc:
+            # Never let a logging failure replace the reason the run ended —
+            # if the run itself raised, that traceback is the useful one.
+            print(f"\ncould not log run {record.run_id}: {exc}")
 
 
 if __name__ == "__main__":

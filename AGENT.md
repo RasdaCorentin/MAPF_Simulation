@@ -14,18 +14,10 @@ python main.py --algo random --mode static      # the historical random-walk dem
 python demo_pibt.py                             # legacy PIBT demo (5x5, keyboard navigation)
 python demo_pibt.py -d                          # same, debug mode: terminal print, zero pygame
 python sim_many_pibt.py --seeds 2               # headless L0 benchmark sweep -> sim_results.csv
-python sim_many_mrta.py --seeds 2               # MRTA post-run report -> mrta_results.csv
-python sim_many_mrta.py --obstacles 14 --per-task mrta_tasks.csv   # + failure paths, per-task drill-down
 ```
 
-**Two reports, two questions.** `sim_many_pibt.py` asks "does PIBT route agents to fixed
-goals" — but its `success_rate` **latches on the first time an agent touches its goal** and is
-never invalidated (`sim_many_pibt.py:87`), so a fleet that converges then scatters still scores
-100%. `sim_many_mrta.py` reports the task lifecycle instead, with every distribution given as
-**mean and max** because the failure mode is "nineteen agents are fine and one is not" — the
-exact thing a mean hides. Key columns: `drift_max` / `drift_agents` (agents pushed off a
-completed target), `goalless_frac`, `reassignments`, `failed_unreachable` vs `failed_stalled`,
-and `dispatch_ms_mean` vs `plan_ms_mean` (allocator cost separated from planner cost).
+**Every `main.py` run appends one row to `experiments.csv`** (`--results` to change the file,
+`--no-results` to skip, `--label` to tag the run) — see `report/` below.
 
 `main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
 `--mode {mrta,static}`, `--tasks {none,random}`, `--frontend {pygame,headless}`, `--steps`,
@@ -111,6 +103,11 @@ There is currently **no test suite** — these are the de-facto regression check
 │   └── allocation/
 │       ├── random_allocator.py         — RandomAllocator: random task/agent matching
 │       └── kdtree_greedy_allocator.py  — KDTreeGreedyAllocator: design stub (NotImplementedError)
+│
+├── report/                      — experiment log, depends on core + mrta (+ a controller)
+│   ├── run_record.py            — RunRecord: THE schema, flat scalars; sql_create_table()
+│   ├── sink.py                  — ResultSink (ABC), CsvSink (append), NullSink
+│   └── collector.py             — RunCollector: decorates a controller and measures it
 │
 ├── diagrammes/                  — PlantUML class diagram sources + generated PNGs
 ├── rapport_plan.md              — design report on the task lifecycle (French, working doc)
@@ -377,6 +374,55 @@ batch. Keys: `Space` play/pause · `→` step · `←` replay back · `A`/`C` se
   is therefore incompatible with interactivity.
 - **No threads**: `Grid`/`Agent` are mutated while read, and PIBT is CPU-bound so the GIL
   cancels the gain. Concurrency buys nothing and costs correctness.
+
+---
+
+## Classes in `report/`
+
+```python
+@dataclass(frozen=True)
+class RunRecord:                    # report/run_record.py — THE schema
+    run_id, timestamp, schema_version, git_rev, label      # identity
+    width, height, agents, obstacles, algo, mode, task_source, seed,
+    patience, max_attempts                                  # scenario
+    steps, wall_ms, step_ms_mean                            # run
+    tasks_created/done/failed/unfinished, completion_rate,
+    failed_unreachable, failed_stalled, reassignments, attempts_max
+    wait_mean/max, service_mean/max, detour_mean/max         # latency
+    drift_agents, drift_mean, drift_max, displaced_events, goalless_frac
+    busy_frac, idle_max
+    columns() -> list[str] ; as_row() -> dict ; sql_create_table(table) -> str
+
+class ResultSink(ABC):              # report/sink.py
+    append(record: RunRecord)
+class CsvSink(ResultSink)           # appends; header written once
+class NullSink(ResultSink)          # discards
+
+class RunCollector:                 # report/collector.py
+    RunCollector(controller, config, label="")
+    step() / run(steps)             # forwards to the controller, measuring
+    record(label=None) -> RunRecord
+    __getattr__                     # everything else delegates to the controller
+```
+
+- **Every field is a plain scalar.** A CSV header and a SQL table are two renderings of the same
+  record; anything nested would serialise to CSV and then have nowhere to go in a relational
+  column. `sql_create_table()` lives next to the dataclass so the relational shape cannot drift
+  from it, and resolves types through `typing.get_type_hints` rather than by parsing annotation
+  text — guessing from the repr silently mistypes exactly the `Optional` columns.
+- **`RunCollector` is a decorator, not a subclass**: frontends drive it exactly as they drive
+  `SimulationController` and never learn they are being measured. It observes through **public
+  attributes only** (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics
+  can be reworked — and they will be — without the engine or the fleet changing.
+- **Appending to a changed schema raises.** A new column would otherwise shift every later value
+  one place left, producing a file that still parses and is quietly wrong. `schema_version` is
+  stored on every row so a dataset spanning code changes stays interpretable; `git_rev` and
+  `seed` are what make a row reproducible after the fact.
+- **The run is logged in a `finally`**, so a window closed by hand or a Ctrl-C still records an
+  observation; a logging failure is reported without masking the reason the run ended.
+
+Swapping in SQL later means one new `ResultSink` subclass and nothing else — verified by loading
+`experiments.csv` into sqlite with `sql_create_table()` unedited.
 
 ---
 
