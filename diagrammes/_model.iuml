@@ -3,7 +3,7 @@
 '
 '  Two renderings are driven by $ANNOTATED:
 '    0 -> simple    : structure only (no stereotypes, no notes)
-'    1 -> annotated : + stereotypes + design-pattern notes
+'    1 -> annotated : + stereotypes + explanatory notes
 '  Multiplicities and relation labels are kept in BOTH renderings, so
 '  relations stay plain readable PlantUML.
 '
@@ -17,16 +17,26 @@
 '  client.frontends NEVER imports algo, nor any mrta BEHAVIOUR (FleetManager,
 '  Allocator, TaskSource) — it only ever sees frozen values.
 '
-'  LAYOUT NOTE: packages below are declared in dependency (topological)
-'  order — core, mrta, algo, then client{view, control, frontends} — so
-'  every relation is drawn "forward" against a package already on the
-'  page. Declaring client before mrta/algo (as an earlier version did)
-'  forced algo's edges back up over the client package to reach core,
-'  which is what produced the tangled, direction-less layout. With this
-'  order SimulationController — the composition root, the single class
-'  wired to core, mrta, algo and client.view at once — lands with its
-'  dependencies already laid out above it, which is what pulls it to
-'  the visual center of the diagram instead of a corner.
+'  LAYOUT — two rules, both about where the reader's eye should land.
+'
+'  1. Notes are declared INSIDE the package of the class they annotate,
+'     immediately after that class. A note declared at the bottom of the
+'     file is a free node as far as dot is concerned: it gets no cluster,
+'     so it drifts to whatever margin is cheapest and its anchor line
+'     crosses the page. Declared in the cluster, it is laid out WITH the
+'     class it belongs to, which is the only reliable way to keep the two
+'     side by side.
+'
+'  2. The diagram is organised around SimulationController, not around
+'     core. It is the most connected class in the project — the
+'     composition root, wired to core, mrta, algo and client.view at
+'     once — whereas core is merely what everything depends ON, which
+'     is not the same thing as what the reader should start from.
+'     Three changes carry this: client.control is declared in the middle
+'     of the package list, the factory's edges into algo are drawn
+'     explicitly (they were implicit, understating the root by two
+'     packages), and two hidden edges near the bottom of this file pin
+'     the rank Simulation | SimulationController | FleetManager.
 ' =====================================================================
 
 skinparam classAttributeIconSize 0
@@ -50,6 +60,9 @@ skinparam linetype ortho
   !return ""
 !endfunction
 
+' =====================================================================
+'  core — the world and the tick that advances it
+' =====================================================================
 package "core" #EAF4FF {
 
     package "entities" {
@@ -108,6 +121,16 @@ package "core" #EAF4FF {
             + goals      : dict[int, Position]
             + priorities : dict[int, float]
         }
+        !if $ANNOTATED == 1
+        note bottom of DispatchIntent
+          **The only channel between the two sides**
+          One tick's complete answer to "where should everyone go?" —
+          a goal and an optional priority per agent, frozen.
+          Nothing else may set a coordinator's goals, so any Dispatcher
+          pairs with any Coordinator, and every tick leaves an
+          auditable record of what was asked.
+        end note
+        !endif
 
         abstract class Coordinator $st("Strategy") {
             + {abstract} plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
@@ -116,6 +139,18 @@ package "core" #EAF4FF {
         abstract class Dispatcher $st("Strategy") {
             + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         }
+        !if $ANNOTATED == 1
+        note bottom of Dispatcher
+          **The two questions of the simulation, kept apart**
+          Dispatcher answers WHERE each robot should go — a business
+          decision: which job matters, who is free.
+          Coordinator answers HOW they get there — a geometric one:
+          paths and collisions.
+          Both are abstract and live in core, so the engine runs a tick
+          without knowing that task allocation or PIBT exist. Swap
+          either side and the other is unaffected.
+        end note
+        !endif
 
         class StaticDispatcher {
             - _intent : DispatchIntent
@@ -138,9 +173,25 @@ package "core" #EAF4FF {
             + step() : PlanResult
             - _validate(result: PlanResult) : void
         }
+        !if $ANNOTATED == 1
+        note top of Simulation
+          **The engine — one tick of the world**
+          Every step runs the same three phases, in this order:
+            1. **dispatch** — ask the Dispatcher where each agent goes
+            2. **plan**     — ask the Coordinator how to move them there
+            3. **move**     — apply the plan to the grid
+          Because the engine owns that order, goals can never be stale
+          and a caller cannot plan before dispatching. All agents move
+          inside one transaction, so two of them can swap cells without
+          either seeing the grid half-updated.
+        end note
+        !endif
     }
 }
 
+' =====================================================================
+'  mrta — Multi-Robot Task Allocation: who does what
+' =====================================================================
 package "mrta" #FFF0F5 {
 
     enum TaskState {
@@ -166,6 +217,17 @@ package "mrta" #FFF0F5 {
     abstract class TaskSource $st("Strategy") {
         + {abstract} poll(current_step: int) : list[Task]
     }
+    !if $ANNOTATED == 1
+    note left of TaskSource
+      **Where the work comes from**
+      A run can be fed by a human, a generator or a script — the fleet
+      does not care which:
+        QueueTaskSource     — pushed from outside (a click, a script)
+        RandomTaskSource    — seeded background load, for benchmarks
+        ScriptedTaskSource  — a fixed {step: tasks} schedule, for tests
+        CompositeTaskSource — several at once (manual AND background)
+    end note
+    !endif
 
     class QueueTaskSource {
         - _queue : list[Task]
@@ -199,6 +261,14 @@ package "mrta" #FFF0F5 {
     abstract class Allocator $st("Strategy") {
         + {abstract} allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
     }
+    !if $ANNOTATED == 1
+    note right of Allocator
+      **Who takes which job**
+      The matching strategy, isolated so variants can be compared:
+      pending tasks and idle agents in, task -> agent pairs out.
+      RandomAllocator is the baseline; a distance-greedy one is next.
+    end note
+    !endif
 
     class FleetManager {
         + source          : TaskSource
@@ -213,8 +283,33 @@ package "mrta" #FFF0F5 {
         + set_priority(task_id: int, priority: float) : void
         - _build_intent()   : DispatchIntent
     }
+    !if $ANNOTATED == 1
+    note bottom of FleetManager
+      **The fleet's memory — it is the Dispatcher in task mode**
+      Each tick it collects new tasks, marks arrived ones DONE, hands
+      the rest to the Allocator, and publishes the result as a
+      DispatchIntent. A task lives PENDING -> ASSIGNED -> DONE, or
+      ends FAILED.
+
+      **Why FAILED exists.** An assigned agent is no longer available,
+      so a task aiming at an unreachable cell would hold a robot
+      hostage forever while the fleet still looked healthy. Two guards
+      prevent it:
+        at intake — a target off-grid or under an obstacle is rejected
+        watchdog  — an assignee that gets no closer for `patience`
+                    steps is released and the task retried; after
+                    `max_attempts` assignees the task is FAILED
+      Progress is *observed* rather than reachability *proven*:
+      obstacles can appear mid-run, so any proof would be stale and
+      would duplicate the planner. Failed tasks are counted, never
+      silently dropped.
+    end note
+    !endif
 }
 
+' =====================================================================
+'  algo — the interchangeable algorithms plugged into core
+' =====================================================================
 package "algo" #F0FFF0 {
 
     package "coordination" {
@@ -255,6 +350,22 @@ package "algo" #F0FFF0 {
             - _pibt(agent: Agent, parent: Agent | None, grid: Grid) : bool
             - _h(pos: Position, agent: Agent, grid: Grid) : int
         }
+        !if $ANNOTATED == 1
+        note right of PIBTCoordinator
+          **PIBT — Priority Inheritance with Backtracking**
+          (Okumura et al., 2022) — the default MAPF algorithm.
+          Agents are served in priority order; each claims the free
+          neighbouring cell closest to its goal.
+          If that cell is held by a lower-priority agent, that agent
+          *inherits* the caller's priority and is asked to move first
+          (inheritance); if it has nowhere to go, the caller falls back
+          to its next-best cell (backtracking).
+          Priorities decay every step, so no agent starves.
+          The two helper classes keep the algorithm readable: who
+          booked which cell (ReservationTable) and who outranks whom
+          (PriorityManager).
+        end note
+        !endif
     }
 
     package "allocation" {
@@ -272,40 +383,11 @@ package "algo" #F0FFF0 {
     }
 }
 
-' client is a real package (client/control, client/view, client/frontends) but is
-' deliberately NOT drawn as one enclosing box: dot must keep an enclosing package
-' contiguous, which glued all three together on one side of the page regardless of
-' what each sub-package actually connects to. Left as three siblings, the layout
-' engine is free to settle client.control next to core/mrta (what it is built from)
-' and client.frontends below it (what is built from it) instead of dragging both
-' to wherever client.view happened to land.
-
-package "client · view" #FFF5EA {
-    class TaskView $st("value object") {
-        + task_id     : int
-        + target      : Position
-        + state       : TaskState
-        + priority    : float
-        + assignee_id : int | None
-        + attempts    : int
-        --
-        + {static} of(task: Task) : TaskView
-    }
-
-    class StepSnapshot $st("DTO") {
-        + step      : int
-        + result    : PlanResult
-        + goals     : dict[int, Position]
-        + objects   : tuple
-        + tasks     : tuple[TaskView]
-        + completed : int
-        + failed    : int
-        --
-        + counts() : dict[str, int]
-    }
-}
-
-' ── PART 1: scripting API (pygame-free, reusable by any script) ──
+' =====================================================================
+'  client · control — PART 1: the scripting API and composition root.
+'  Declared here, between what it is built from and what is built on
+'  it, so the most connected class of the project lands in the middle.
+' =====================================================================
 package "client · control" #FFF5EA {
     class ScenarioConfig $st("value object") {
         + width        : int = 15
@@ -336,15 +418,85 @@ package "client · control" #FFF5EA {
         + send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
         + snapshot() : StepSnapshot
     }
+    !if $ANNOTATED == 1
+    note top of SimulationController
+      **The way in — for a window, a script or a benchmark**
+      Builds one simulation and exposes the four verbs a driver needs:
+      step, run, snapshot and send_batch_to.
+      "Send these robots over there" steers no one: send_batch_to mints
+      tasks and pushes them to the queue, so a manual order takes the
+      exact same path as generated work —
+        click -> queue -> FleetManager -> DispatchIntent -> Coordinator
+      and inherits collision avoidance for free. Nothing in the project
+      bypasses the planner.
+      With the factory beside it, this is the composition root: the
+      only place that names a concrete algorithm or allocator, which is
+      what lets everything downstream stay ignorant of both.
+    end note
+    !endif
 }
 
-' ── PART 2: presentation only (knows neither algo nor mrta) ──────
+' =====================================================================
+'  client · view — the frozen values a frontend is allowed to see
+' =====================================================================
+package "client · view" #FFF5EA {
+    class TaskView $st("value object") {
+        + task_id     : int
+        + target      : Position
+        + state       : TaskState
+        + priority    : float
+        + assignee_id : int | None
+        + attempts    : int
+        --
+        + {static} of(task: Task) : TaskView
+    }
+    !if $ANNOTATED == 1
+    note right of TaskView
+      **A snapshot must hold values, never live objects**
+      A Task keeps changing (ASSIGNED -> DONE) and is eventually
+      discarded by the fleet. A frontend that stored the Task itself
+      would watch its own history rewrite as the run went on, and could
+      read an agent's *current* position from a frame describing the
+      past.
+      TaskView is a frozen copy with the assignee reduced to its id —
+      the same rule PlanResult follows by keying on agent ids rather
+      than exposing Agent objects.
+    end note
+    !endif
+
+    class StepSnapshot $st("DTO") {
+        + step      : int
+        + result    : PlanResult
+        + goals     : dict[int, Position]
+        + objects   : tuple
+        + tasks     : tuple[TaskView]
+        + completed : int
+        + failed    : int
+        --
+        + counts() : dict[str, int]
+    }
+}
+
+' =====================================================================
+'  client · frontends — PART 2: presentation only
+' =====================================================================
 package "client · frontends" #FFF5EA {
     abstract class Frontend $st("Strategy") {
         + controller : SimulationController
         --
         + {abstract} run(steps: int) : void
     }
+    !if $ANNOTATED == 1
+    note top of Frontend
+      **Presentation — knows neither algo nor mrta**
+      A frontend reads StepSnapshot and calls the controller; it never
+      touches the grid, the fleet or the algorithm. Adding one (web,
+      ROS bridge, ...) changes nothing in core, algo or mrta.
+      PygameFrontend is the interactive window: click or rubber-band to
+      select robots, click a cell to send them there. It also owns the
+      clock — the engine's step() is a pure "advance by one".
+    end note
+    !endif
 
     class PygameFrontend {
         + tick_ms   : int
@@ -399,8 +551,14 @@ PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
 PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
 
 ' ── Client PART 1: the scripting API (composition root) ───────────
+' The factory -> algo edges are what make the composition root visible:
+' this is the one place in the project naming a concrete algorithm.
 factory ..> ScenarioConfig       : «reads»
 factory ..> SimulationController : «creates»
+factory ..> PIBTCoordinator      : «selects»
+factory ..> RandomWalkCoordinator : «selects»
+factory ..> RandomAllocator      : «selects»
+factory ..> FleetManager         : «wires»
 SimulationController "1" o-- "1" Simulation         : sim
 SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
 SimulationController "1" o-- "0..1" QueueTaskSource : queue (MRTA mode)
@@ -436,14 +594,24 @@ FleetManager "1" o-- "1" TaskSource : source
 FleetManager "1" o-- "1" Allocator  : allocator
 FleetManager "1" *-- "0..*" Task    : tasks
 
+' ── Layout constraint: put the composition root in the middle ─────
+' Declaration order alone is a weak hint — dot re-orders clusters
+' freely. These hidden edges pin one rank, left to right: the grid, the
+' engine that advances it, the controller that drives the engine, and
+' the fleet that feeds it goals. That lands client.control at the centre
+' of the page and pushes core, which everything merely depends ON, out
+' to the side where a foundation belongs.
+' The Grid anchor is not decorative: without it dot is free to swing
+' core around client.control, which it did in the simple rendering —
+' the two diagrams then disagreed about where each package lives.
+Grid -[hidden]right- Simulation
+Simulation -[hidden]right- SimulationController
+SimulationController -[hidden]right- FleetManager
 
 ' =====================================================================
-'  NOTES — annotated rendering only.
-'  Each note answers "what is this for?", not "how is it coded?" —
-'  the docstrings carry the implementation detail.
+'  Page-level legend — the 30-second read, annotated rendering only.
 ' =====================================================================
 !if $ANNOTATED == 1
-
 legend bottom left
   **What this project simulates**
   A fleet of robots moving on a grid. Jobs appear somewhere on the map;
@@ -455,118 +623,4 @@ legend bottom left
     **algo**   the interchangeable algorithms plugged into core
     **client** how a human or a script drives and watches a run
 end legend
-
-note top of Simulation
-  **The engine — one tick of the world**
-  Every step runs the same three phases, in this order:
-    1. **dispatch** — ask the Dispatcher where each agent should go
-    2. **plan**     — ask the Coordinator how to move them there
-    3. **move**     — apply the plan to the grid
-  Because the engine owns that order, goals can never be stale and a
-  caller cannot plan before dispatching. All agents move inside one
-  transaction, so two agents can swap cells without either seeing the
-  grid half-updated.
-end note
-
-note right of Dispatcher
-  **The two questions of the simulation, kept apart**
-  Dispatcher answers WHERE each robot should go (a business decision:
-  which job matters, who is free). Coordinator answers HOW they get
-  there (a geometric decision: paths, collisions).
-  Both are abstract and live in core, so the engine can run the tick
-  without knowing that task allocation or PIBT exist. Swap either side
-  and the other is unaffected.
-end note
-
-note bottom of DispatchIntent
-  **The only channel between the two sides**
-  One tick's complete answer to "where should everyone go?" — a goal
-  and an optional priority per agent, frozen. Nothing else may set a
-  coordinator's goals, so any Dispatcher pairs with any Coordinator,
-  and every tick leaves an auditable record of what was asked.
-end note
-
-note bottom of PIBTCoordinator
-  **PIBT — Priority Inheritance with Backtracking** (Okumura et al., 2022)
-  The default MAPF algorithm. Agents are served in priority order; each
-  claims the free neighbouring cell closest to its goal.
-  If the cell it wants is held by a lower-priority agent, that agent
-  *inherits* the caller's priority and is asked to move first
-  (inheritance); if it has nowhere to go, the caller falls back to its
-  next-best cell (backtracking).
-  Priorities decay every step so no agent starves. The two helper
-  classes keep the algorithm readable: who booked which cell
-  (ReservationTable) and who outranks whom (PriorityManager).
-end note
-
-note right of TaskSource
-  **Where the work comes from**
-  A run can be fed by a human, by a generator, or by a script — the
-  fleet does not care which:
-    QueueTaskSource    — pushed from outside (a click, a script)
-    RandomTaskSource   — seeded background load, for benchmarks
-    ScriptedTaskSource — a fixed {step: tasks} schedule, for tests
-    CompositeTaskSource— several at once (manual queue AND background)
-end note
-
-note left of Allocator
-  **Who takes which job**
-  The matching strategy, isolated so it can be compared: pending tasks
-  and idle agents in, task -> agent pairs out. RandomAllocator is the
-  baseline; a distance-greedy one is the next step.
-end note
-
-note bottom of FleetManager
-  **The fleet's memory — it is the Dispatcher in task mode**
-  Each tick it collects new tasks, marks arrived ones DONE, hands the
-  rest to the Allocator, and publishes the result as a DispatchIntent.
-  A task lives PENDING -> ASSIGNED -> DONE, or ends FAILED.
-
-  **Why FAILED exists.** An assigned agent is no longer available, so a
-  task aiming at an unreachable cell would hold a robot hostage forever
-  while the fleet still looked healthy. Two guards prevent it:
-    at intake — a target off-grid or under an obstacle is rejected
-    watchdog  — an assignee that gets no closer for `patience` steps is
-                released and the task retried; after `max_attempts`
-                assignees the task is FAILED
-  Progress is *observed* rather than reachability *proven*: obstacles
-  can appear mid-run, so any proof would be stale and would duplicate
-  the planner. Failed tasks are counted, never silently dropped.
-end note
-
-note right of SimulationController
-  **The way in — for a window, a script or a benchmark**
-  Builds one simulation and exposes the four verbs a driver needs:
-  step, run, snapshot, and send_batch_to.
-  send_batch_to("send these robots over there") does not steer anyone:
-  it mints tasks and pushes them to the queue, so a manual order takes
-  the exact same path as generated work —
-    click -> queue -> FleetManager -> DispatchIntent -> Coordinator
-  and inherits collision avoidance for free. Nothing in the project
-  bypasses the planner.
-  This class and the factory beside it form the composition root: the
-  only place that names a concrete algorithm or allocator.
-end note
-
-note right of TaskView
-  **A snapshot must hold values, never live objects**
-  A Task keeps changing (ASSIGNED -> DONE) and is eventually discarded
-  by the fleet. A frontend that stored the Task itself would watch its
-  own history rewrite as the run went on, and could read an agent's
-  *current* position from a frame describing the past.
-  TaskView is a frozen copy, with the assignee reduced to its id — the
-  same rule PlanResult follows by keying on agent ids rather than
-  exposing Agent objects.
-end note
-
-note top of Frontend
-  **Presentation — knows neither algo nor mrta**
-  A frontend reads StepSnapshot and calls the controller; it never
-  touches the grid, the fleet or the algorithm. Adding one (web, ROS
-  bridge, ...) changes nothing in core, algo or mrta.
-  PygameFrontend is the interactive window: click or rubber-band to
-  select robots, click a cell to send them there. It also owns the
-  clock — the engine's step() is a pure "advance by one".
-end note
-
 !endif
