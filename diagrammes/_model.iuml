@@ -32,11 +32,15 @@
 '     composition root, wired to core, mrta, algo and client.view at
 '     once — whereas core is merely what everything depends ON, which
 '     is not the same thing as what the reader should start from.
-'     Three changes carry this: client.control is declared in the middle
-'     of the package list, the factory's edges into algo are drawn
-'     explicitly (they were implicit, understating the root by two
-'     packages), and two hidden edges near the bottom of this file pin
-'     the rank Simulation | SimulationController | FleetManager.
+'     Two changes carry this: client.control is declared in the middle
+'     of the package list, and two hidden edges near the bottom of this
+'     file pin the rank Simulation | SimulationController | FleetManager.
+'     The factory's edges into the concrete algorithms are deliberately
+'     NOT drawn. They are real — factory.py imports PIBTCoordinator,
+'     RandomWalkCoordinator and RandomAllocator by name — but they cross
+'     three packages and cost more in edge crossings than they buy in
+'     insight. The note on SimulationController states in words what
+'     those edges would have shown.
 ' =====================================================================
 
 skinparam classAttributeIconSize 0
@@ -551,13 +555,8 @@ PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
 PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
 
 ' ── Client PART 1: the scripting API (composition root) ───────────
-' The factory -> algo edges are what make the composition root visible:
-' this is the one place in the project naming a concrete algorithm.
 factory ..> ScenarioConfig       : «reads»
 factory ..> SimulationController : «creates»
-factory ..> PIBTCoordinator      : «selects»
-factory ..> RandomWalkCoordinator : «selects»
-factory ..> RandomAllocator      : «selects»
 factory ..> FleetManager         : «wires»
 SimulationController "1" o-- "1" Simulation         : sim
 SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
