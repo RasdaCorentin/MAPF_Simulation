@@ -16,6 +16,17 @@
 '  mrta NEVER imports algo or client.
 '  client.frontends NEVER imports algo, nor any mrta BEHAVIOUR (FleetManager,
 '  Allocator, TaskSource) — it only ever sees frozen values.
+'
+'  LAYOUT NOTE: packages below are declared in dependency (topological)
+'  order — core, mrta, algo, then client{view, control, frontends} — so
+'  every relation is drawn "forward" against a package already on the
+'  page. Declaring client before mrta/algo (as an earlier version did)
+'  forced algo's edges back up over the client package to reach core,
+'  which is what produced the tangled, direction-less layout. With this
+'  order SimulationController — the composition root, the single class
+'  wired to core, mrta, algo and client.view at once — lands with its
+'  dependencies already laid out above it, which is what pulls it to
+'  the visual center of the diagram instead of a corner.
 ' =====================================================================
 
 skinparam classAttributeIconSize 0
@@ -29,6 +40,7 @@ skinparam PackageBorderColor #888888
 skinparam PackageBackgroundColor #F8F8F8
 skinparam NoteBackgroundColor #FFFDE7
 skinparam NoteBorderColor #C9B458
+skinparam linetype ortho
 
 ' Conditional stereotype: emitted only in the annotated rendering.
 !function $st($s)
@@ -46,7 +58,6 @@ package "core" #EAF4FF {
             + y : int
             --
             + __add__(other: Position) : Position
-            + __repr__() : str
         }
 
         class WorldEntity {
@@ -64,9 +75,6 @@ package "core" #EAF4FF {
             + steps_taken : int
             --
             + move_to(new_position: Position) : void
-            + __eq__(other: object) : bool
-            + __hash__() : int
-            + __repr__() : str
         }
     }
 
@@ -84,7 +92,6 @@ package "core" #EAF4FF {
             + get_agent_at(position: Position) : Agent | None
             + get_entities_at(position: Position, kind) : list[WorldEntity]
             + get_all(kind) : list[WorldEntity]
-            + __repr__() : str
         }
     }
 
@@ -130,109 +137,6 @@ package "core" #EAF4FF {
             + add_object(entity: WorldEntity) : void
             + step() : PlanResult
             - _validate(result: PlanResult) : void
-            + __repr__() : str
-        }
-    }
-}
-
-package "client" #FFF5EA {
-
-    ' ── PART 1: scripting API (pygame-free, reusable by any script) ──
-    package "control" {
-        class ScenarioConfig $st("value object") {
-            + width        : int = 15
-            + height       : int = 15
-            + agents       : int = 20
-            + obstacles    : int = 0
-            + algo         : str = "pibt"
-            + mode         : str = "mrta"
-            + seed         : int = 0
-            + tasks        : str = "none"
-            + task_every   : int = 5
-            + task_count   : int = 2
-            + patience     : int = 12
-            + max_attempts : int = 3
-        }
-
-        class factory $st("Factory") {
-            + {static} build(config: ScenarioConfig) : SimulationController
-        }
-
-        class SimulationController $st("Facade") {
-            + sim   : Simulation
-            + fleet : FleetManager | None
-            + queue : QueueTaskSource | None
-            --
-            + step() : StepSnapshot
-            + run(steps: int) : list[StepSnapshot]
-            + send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
-            + snapshot() : StepSnapshot
-            - _free_cells_around(target: Position, count: int) : list[Position]
-        }
-    }
-
-    package "view" {
-        class TaskView $st("value object") {
-            + task_id     : int
-            + target      : Position
-            + state       : TaskState
-            + priority    : float
-            + assignee_id : int | None
-            + attempts    : int
-            --
-            + {static} of(task: Task) : TaskView
-        }
-
-        class StepSnapshot $st("DTO") {
-            + step      : int
-            + result    : PlanResult
-            + goals     : dict[int, Position]
-            + objects   : tuple
-            + tasks     : tuple[TaskView]
-            + completed : int
-            + failed    : int
-            --
-            + counts() : dict[str, int]
-        }
-    }
-
-    ' ── PART 2: presentation only (knows neither algo nor mrta) ──────
-    package "frontends" {
-        abstract class Frontend $st("Strategy") {
-            + controller : SimulationController
-            --
-            + {abstract} run(steps: int) : void
-        }
-
-        class PygameFrontend {
-            + tick_ms   : int
-            + cell      : int
-            + selection : set[int]
-            + history   : list[StepSnapshot]
-            + cursor    : int
-            + playing   : bool
-            --
-            + run(steps: int) : void
-            - _cell_size() : int
-            - _handle(event, grid_w: int, panel: Sidebar)
-            - _release(start, end) : void
-            - _agents_in_band(start, end) : set[int]
-            - _advance() : void
-            - _at_present() : bool
-            - _draw_board(screen, snap: StepSnapshot, fonts) : void
-        }
-
-        class Sidebar {
-            + height  : int
-            + buttons : dict[str, Rect]
-            --
-            + draw(screen, origin_x, snap, selection, playing, replaying, fonts) : void
-            + hit(position, origin_x) : str | None
-        }
-
-        class HeadlessFrontend {
-            + run(steps: int) : void
-            - _print(snap: StepSnapshot, total: int) : void
         }
     }
 }
@@ -304,17 +208,10 @@ package "mrta" #FFF0F5 {
         + tasks           : list[Task]
         + completed_count : int
         + failed_count    : int
-        - _next_task_id   : int
         --
         + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         + set_priority(task_id: int, priority: float) : void
-        - _complete(agents: list[Agent]) : void
-        - _watchdog(step: int) : void
-        - _prune() : void
-        - _intake(step: int, grid: Grid) : void
-        - _allocate(agents: list[Agent], grid: Grid) : void
-        - _by_eligibility(pending: list[Task]) : list[tuple]
-        - _build_intent() : DispatchIntent
+        - _build_intent()   : DispatchIntent
     }
 }
 
@@ -333,7 +230,6 @@ package "algo" #F0FFF0 {
             + release(agent: Agent) : void
             + get_reserving_agent(pos: Position) : Agent | None
             + get_reservation(agent: Agent) : Position | None
-            + clear() : void
         }
 
         class PriorityManager {
@@ -342,7 +238,6 @@ package "algo" #F0FFF0 {
             --
             + update(agents: list[Agent]) : void
             + get_priority(agent: Agent) : float
-            + get_base(agent: Agent) : float
             + set_base(agent: Agent, p: float) : void
         }
 
@@ -374,6 +269,108 @@ package "algo" #F0FFF0 {
             + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
             - _nearest_free(task: Task, free: list[Agent]) : Agent
         }
+    }
+}
+
+' client is a real package (client/control, client/view, client/frontends) but is
+' deliberately NOT drawn as one enclosing box: dot must keep an enclosing package
+' contiguous, which glued all three together on one side of the page regardless of
+' what each sub-package actually connects to. Left as three siblings, the layout
+' engine is free to settle client.control next to core/mrta (what it is built from)
+' and client.frontends below it (what is built from it) instead of dragging both
+' to wherever client.view happened to land.
+
+package "client · view" #FFF5EA {
+    class TaskView $st("value object") {
+        + task_id     : int
+        + target      : Position
+        + state       : TaskState
+        + priority    : float
+        + assignee_id : int | None
+        + attempts    : int
+        --
+        + {static} of(task: Task) : TaskView
+    }
+
+    class StepSnapshot $st("DTO") {
+        + step      : int
+        + result    : PlanResult
+        + goals     : dict[int, Position]
+        + objects   : tuple
+        + tasks     : tuple[TaskView]
+        + completed : int
+        + failed    : int
+        --
+        + counts() : dict[str, int]
+    }
+}
+
+' ── PART 1: scripting API (pygame-free, reusable by any script) ──
+package "client · control" #FFF5EA {
+    class ScenarioConfig $st("value object") {
+        + width        : int = 15
+        + height       : int = 15
+        + agents       : int = 20
+        + obstacles    : int = 0
+        + algo         : str = "pibt"
+        + mode         : str = "mrta"
+        + seed         : int = 0
+        + tasks        : str = "none"
+        + task_every   : int = 5
+        + task_count   : int = 2
+        + patience     : int = 12
+        + max_attempts : int = 3
+    }
+
+    class factory $st("Factory") {
+        + {static} build(config: ScenarioConfig) : SimulationController
+    }
+
+    class SimulationController $st("Facade") {
+        + sim   : Simulation
+        + fleet : FleetManager | None
+        + queue : QueueTaskSource | None
+        --
+        + step() : StepSnapshot
+        + run(steps: int) : list[StepSnapshot]
+        + send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
+        + snapshot() : StepSnapshot
+    }
+}
+
+' ── PART 2: presentation only (knows neither algo nor mrta) ──────
+package "client · frontends" #FFF5EA {
+    abstract class Frontend $st("Strategy") {
+        + controller : SimulationController
+        --
+        + {abstract} run(steps: int) : void
+    }
+
+    class PygameFrontend {
+        + tick_ms   : int
+        + cell      : int
+        + selection : set[int]
+        + history   : list[StepSnapshot]
+        + cursor    : int
+        + playing   : bool
+        --
+        + run(steps: int) : void
+        - _handle(event, grid_w: int, panel: Sidebar)
+        - _advance() : void
+        - _draw_board(screen, snap: StepSnapshot, fonts) : void
+    }
+
+    class Sidebar {
+        + height  : int
+        + buttons : dict[str, Rect]
+        --
+        + draw(screen, origin_x, snap, selection, playing, replaying, fonts) : void
+        + hit(position, origin_x) : str | None
+    }
+
+    class HeadlessFrontend {
+        + run(steps: int) : void
+        - _print(snap: StepSnapshot, total: int) : void
     }
 }
 
@@ -411,7 +408,6 @@ SimulationController ..> StepSnapshot : «builds»
 SimulationController ..> TaskView    : «projects Task ->»
 StepSnapshot "1" *-- "1" PlanResult  : result
 StepSnapshot "1" *-- "0..*" TaskView : tasks
-TaskView ..> TaskState : state
 
 ' ── Client PART 2: front-ends, decoupled from algo & mrta ─────────
 Frontend "1" o-- "1" SimulationController : controller
@@ -440,171 +436,137 @@ FleetManager "1" o-- "1" TaskSource : source
 FleetManager "1" o-- "1" Allocator  : allocator
 FleetManager "1" *-- "0..*" Task    : tasks
 
+
 ' =====================================================================
-'  NOTES — annotated rendering only
+'  NOTES — annotated rendering only.
+'  Each note answers "what is this for?", not "how is it coded?" —
+'  the docstrings carry the implementation detail.
 ' =====================================================================
 !if $ANNOTATED == 1
 
-note bottom of PlanResult
-  **Data Transfer Object (DTO) — unified return of plan()**
-  Cross-algorithm comparison standard:
-  • positions, moves = universal contract (every Coordinator)
-  • order, inheritance, priorities = optional
-    diagnostics (empty outside the PIBT family)
-  Crosses the core→client boundary: it is what keeps
-  the front-ends decoupled from `algo`.
-end note
+legend bottom left
+  **What this project simulates**
+  A fleet of robots moving on a grid. Jobs appear somewhere on the map;
+  the fleet decides //which robot takes which job// (allocation), then a
+  MAPF algorithm decides //how they all get there without colliding//
+  (coordination). Read the packages in this order:
+    **core**   the world (grid, agents) and the tick that advances it
+    **mrta**   Multi-Robot Task Allocation — who does what
+    **algo**   the interchangeable algorithms plugged into core
+    **client** how a human or a script drives and watches a run
+end legend
 
-note bottom of DispatchIntent
-  **Data Transfer Object (DTO) — allocation contract**
-  Absolute goals/priorities wanted this tick (agent_id-keyed).
-  It replaces external mutation of the coordinator:
-  • FleetManager RETURNS it (no coordinator reference)
-  • plan() READS it (priorities ignored by goal-less algos)
-  Decouples allocation from navigation: any Coordinator
-  (even RandomWalk) can be paired with any Dispatcher.
-end note
-
-note bottom of PIBTCoordinator
-  **Extract-Class**: PIBT is split into focused classes.
-  Reservations -> ReservationTable
-  Priorities   -> PriorityManager
-  The core (_pibt / _h) receives `grid` as an argument
-  (no grid state is stored).
-end note
-
-note top of FleetManager
-  **Control loop — owned by Simulation.step()**:
-  1. dispatch (if a dispatcher is attached):
-     _complete -> _intake -> _allocate -> return DispatchIntent
-  2. coordinator.plan(intent) -> PlanResult
-  3. apply moves (grid.remove -> agent.move_to -> grid.place)
-  FleetManager holds NO coordinator reference — it is pure
-  w.r.t. the engine. mrta depends only on core
-  (Dispatcher, DispatchIntent, Task, Position).
-  _prune() drops DONE tasks: without it `tasks` grows
-  unboundedly and every tick is O(total tasks ever created).
+note top of Simulation
+  **The engine — one tick of the world**
+  Every step runs the same three phases, in this order:
+    1. **dispatch** — ask the Dispatcher where each agent should go
+    2. **plan**     — ask the Coordinator how to move them there
+    3. **move**     — apply the plan to the grid
+  Because the engine owns that order, goals can never be stale and a
+  caller cannot plan before dispatching. All agents move inside one
+  transaction, so two agents can swap cells without either seeing the
+  grid half-updated.
 end note
 
 note right of Dispatcher
-  **Orchestration seam (Dependency Inversion)**
-  Pre-planning hook: Simulation.step() calls dispatch()
-  BEFORE plan(), passing the returned DispatchIntent to it,
-  so goals are never stale by construction. Living in core
-  lets Simulation own the tick order (dispatch -> plan)
-  WITHOUT importing mrta — like Coordinator. FleetManager
-  and StaticDispatcher are the concrete dispatchers.
+  **The two questions of the simulation, kept apart**
+  Dispatcher answers WHERE each robot should go (a business decision:
+  which job matters, who is free). Coordinator answers HOW they get
+  there (a geometric decision: paths, collisions).
+  Both are abstract and live in core, so the engine can run the tick
+  without knowing that task allocation or PIBT exist. Swap either side
+  and the other is unaffected.
 end note
 
-note bottom of Simulation
-  **Deliberate deviation from the simplified rendering**
-  step() returns the step's PlanResult (not void):
-  the only way for front-ends to read PIBT diagnostics
-  without importing `algo` from `client`.
+note bottom of DispatchIntent
+  **The only channel between the two sides**
+  One tick's complete answer to "where should everyone go?" — a goal
+  and an optional priority per agent, frozen. Nothing else may set a
+  coordinator's goals, so any Dispatcher pairs with any Coordinator,
+  and every tick leaves an auditable record of what was asked.
 end note
 
-note left of ReservationTable
-  **Deliberate deviations from the simplified rendering**
-  release(agent): frees an agent's reservation during
-  backtracking (next candidate tried by _pibt).
-  get_reservation(agent): reads the cell reserved by an
-  agent — used to assemble PlanResult.positions and for
-  the anti-recursion guard (sigma defined <=> existing
-  reservation).
+note bottom of PIBTCoordinator
+  **PIBT — Priority Inheritance with Backtracking** (Okumura et al., 2022)
+  The default MAPF algorithm. Agents are served in priority order; each
+  claims the free neighbouring cell closest to its goal.
+  If the cell it wants is held by a lower-priority agent, that agent
+  *inherits* the caller's priority and is asked to move first
+  (inheritance); if it has nowhere to go, the caller falls back to its
+  next-best cell (backtracking).
+  Priorities decay every step so no agent starves. The two helper
+  classes keep the algorithm readable: who booked which cell
+  (ReservationTable) and who outranks whom (PriorityManager).
 end note
 
 note right of TaskSource
-  **Strategy — where work comes from**
-  QueueTaskSource    : fed from outside (sidebar, scripts)
-  RandomTaskSource   : autonomous runs & benchmarks (seeded)
-  ScriptedTaskSource : {step: [Task]} — deterministic tests
-  CompositeTaskSource: merges several — a manual queue AND
-                       background load, without a special
-                       case inside FleetManager.
-  Until these existed, mrta was abstract-only and
-  FleetManager was not instantiable anywhere.
+  **Where the work comes from**
+  A run can be fed by a human, by a generator, or by a script — the
+  fleet does not care which:
+    QueueTaskSource    — pushed from outside (a click, a script)
+    RandomTaskSource   — seeded background load, for benchmarks
+    ScriptedTaskSource — a fixed {step: tasks} schedule, for tests
+    CompositeTaskSource— several at once (manual queue AND background)
+end note
 
-  Task ids are stamped by FleetManager at intake, not by
-  the sources: Task hashes on task_id and is an Allocator
-  dict key, so two sources numbering from 0 would silently
-  collapse each other's tasks.
+note left of Allocator
+  **Who takes which job**
+  The matching strategy, isolated so it can be compared: pending tasks
+  and idle agents in, task -> agent pairs out. RandomAllocator is the
+  baseline; a distance-greedy one is the next step.
 end note
 
 note bottom of FleetManager
-  **Task lifecycle — closing the allocation deadlock**
-  An unreachable target used to consume its assignee
-  FOREVER: _allocate() excludes ASSIGNED agents, so the
-  fleet lost a robot while navigation still looked
-  perfectly healthy. Two guards:
-    intake   — static: target off-grid or under a blocker
-    watchdog — dynamic: no Manhattan progress for
-               `patience` steps -> release the agent,
-               retry; past `max_attempts` -> FAILED
-  We do NOT prove reachability: it is not static under
-  appear_at, and proving it would duplicate the planner
-  with a rival notion of "reachable". We observe the
-  ABSENCE OF PROGRESS instead.
-  Terminal tasks are pruned but COUNTED — dropping work
-  silently would hide the very deadlock this fixes.
-  The watchdog lives here because FleetManager is the only
-  component that sees a task ACROSS ticks.
+  **The fleet's memory — it is the Dispatcher in task mode**
+  Each tick it collects new tasks, marks arrived ones DONE, hands the
+  rest to the Allocator, and publishes the result as a DispatchIntent.
+  A task lives PENDING -> ASSIGNED -> DONE, or ends FAILED.
 
-  _allocate() groups pending tasks by Task.eligible and
-  calls the allocator once per class, restricted first.
-  Eligibility belongs to the REQUEST, not to the matching
-  STRATEGY — so the Allocator interface stays untouched.
+  **Why FAILED exists.** An assigned agent is no longer available, so a
+  task aiming at an unreachable cell would hold a robot hostage forever
+  while the fleet still looked healthy. Two guards prevent it:
+    at intake — a target off-grid or under an obstacle is rejected
+    watchdog  — an assignee that gets no closer for `patience` steps is
+                released and the task retried; after `max_attempts`
+                assignees the task is FAILED
+  Progress is *observed* rather than reachability *proven*: obstacles
+  can appear mid-run, so any proof would be stale and would duplicate
+  the planner. Failed tasks are counted, never silently dropped.
 end note
 
 note right of SimulationController
-  **Facade — PART 1 of client: the scripting API**
-  The single mounting point of a simulation, reusable by
-  ANY script (demos, benchmarks, front-ends). This is the
-  composition root: the only place that knows core + algo
-  + mrta at once, which is what lets the front-ends stay
-  ignorant of both.
-  send_batch_to() = send a batch of agents to B or its
-  surroundings — the central interactive primitive.
-end note
-
-note bottom of Sidebar
-  **The UI is NOT a Dispatcher**
-  Sending a batch to B is a task-ALLOCATION problem, so the
-  interaction feeds a task SOURCE rather than becoming a
-  rival source of goals:
-    click -> send_batch_to -> QueueTaskSource
-          -> FleetManager  -> DispatchIntent
-          -> PIBTCoordinator
-  Nothing bypasses the planner, so batch moves inherit
-  collision avoidance for free, and the coordinator is
-  never mutated from outside. That is why there is no
-  manual per-cell driving anywhere in the API.
-
-  Sidebar itself is pure drawing: it reports where its
-  buttons are, PygameFrontend decides what a click MEANS.
+  **The way in — for a window, a script or a benchmark**
+  Builds one simulation and exposes the four verbs a driver needs:
+  step, run, snapshot, and send_batch_to.
+  send_batch_to("send these robots over there") does not steer anyone:
+  it mints tasks and pushes them to the queue, so a manual order takes
+  the exact same path as generated work —
+    click -> queue -> FleetManager -> DispatchIntent -> Coordinator
+  and inherits collision avoidance for free. Nothing in the project
+  bypasses the planner.
+  This class and the factory beside it form the composition root: the
+  only place that names a concrete algorithm or allocator.
 end note
 
 note right of TaskView
-  **A snapshot must hold values, never live references**
-  StepSnapshot once carried `list[Task]`. A Task is mutable
-  and owned by FleetManager, which keeps mutating it
-  (ASSIGNED -> DONE) and eventually prunes it — so a stored
-  snapshot silently rewrote its own past, and
-  `tasks[i].assignee.position` (live) contradicted
-  `result.positions[id]` (frozen) inside the SAME snapshot.
-  TaskView flattens it: frozen fields, `assignee_id` as an
-  int. Same rule PlanResult already follows by keying on
-  agent_id instead of exposing Agent.
-  Only an OBJECT diagram exposes this: aliasing is a
-  property of identity, invisible on a class diagram.
+  **A snapshot must hold values, never live objects**
+  A Task keeps changing (ASSIGNED -> DONE) and is eventually discarded
+  by the fleet. A frontend that stored the Task itself would watch its
+  own history rewrite as the run went on, and could read an agent's
+  *current* position from a frame describing the past.
+  TaskView is a frozen copy, with the assignee reduced to its id — the
+  same rule PlanResult follows by keying on agent ids rather than
+  exposing Agent objects.
 end note
 
 note top of Frontend
-  **PART 2 of client: presentation only**
-  Knows neither algo nor mrta — reads StepSnapshot and
-  calls the controller. Adding a front-end (web, ROS
-  bridge, ...) requires no change to core/algo/mrta.
-  PygameFrontend replaces the three former renderers,
-  whose grid-drawing code was duplicated three times.
+  **Presentation — knows neither algo nor mrta**
+  A frontend reads StepSnapshot and calls the controller; it never
+  touches the grid, the fleet or the algorithm. Adding one (web, ROS
+  bridge, ...) changes nothing in core, algo or mrta.
+  PygameFrontend is the interactive window: click or rubber-band to
+  select robots, click a cell to send them there. It also owns the
+  clock — the engine's step() is a pure "advance by one".
 end note
 
 !endif
