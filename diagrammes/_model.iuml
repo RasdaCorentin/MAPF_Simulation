@@ -412,6 +412,32 @@ package "client · control" #FFF5EA {
         + {static} build(config: ScenarioConfig) : SimulationController
     }
 
+    abstract class SimulationDriver $st("Strategy") {
+        + sim   : Simulation
+        + fleet : FleetManager | None
+        + queue : QueueTaskSource | None
+        --
+        + {abstract} step() : StepSnapshot
+        + {abstract} run(steps: int) : list[StepSnapshot]
+        + {abstract} snapshot() : StepSnapshot
+        + {abstract} send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
+    }
+    !if $ANNOTATED == 1
+    note left of SimulationDriver
+      **What a frontend is allowed to drive**
+      Normally a SimulationController. With ``main.py --log`` it is a
+      RunCollector wrapping one, measuring every tick on its way
+      through — and a frontend must not be able to tell which it got.
+      Declaring the seam is what makes that substitution checked: a
+      decorator that forgot a method used to fail at the first click,
+      now it fails at instantiation.
+      ``sim`` is on the interface because PygameFrontend really does
+      read ``sim.grid`` to hit-test a click. That is wider than we
+      would like; the interface records the seam that exists, and is
+      where narrowing it would be enforced.
+    end note
+    !endif
+
     class SimulationController $st("Facade") {
         + sim   : Simulation
         + fleet : FleetManager | None
@@ -583,6 +609,7 @@ PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
 factory ..> ScenarioConfig       : «reads»
 factory ..> SimulationController : «creates»
 factory ..> FleetManager         : «wires»
+SimulationDriver <|.. SimulationController
 SimulationController "1" o-- "1" Simulation         : sim
 SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
 SimulationController "1" o-- "0..1" QueueTaskSource : queue (MRTA mode)
@@ -592,7 +619,9 @@ StepSnapshot "1" *-- "1" PlanResult  : result
 StepSnapshot "1" *-- "0..*" TaskView : tasks
 
 ' ── Client PART 2: front-ends, decoupled from algo & mrta ─────────
-Frontend "1" o-- "1" SimulationController : controller
+' The frontend depends on the INTERFACE, not on the controller class:
+' with --log it is handed a RunCollector (see the report diagram).
+Frontend "1" o-- "1" SimulationDriver : controller
 Frontend <|.. PygameFrontend
 Frontend <|.. HeadlessFrontend
 Frontend ..> StepSnapshot : «reads»
