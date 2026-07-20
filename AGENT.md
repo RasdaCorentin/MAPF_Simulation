@@ -672,9 +672,24 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 - **Visual/rendering changes -> `client/frontends/` only.**
 - **Never call `SimulationController.step()` in a loop with a sleep** — a frontend owns the
   clock, and any real-time loop needs the `MAX_STEPS_PER_FRAME` clamp.
-- **Keep the diagrams in sync**: after adding a class or attribute, update `diagrammes/_model.iuml` (the single class-diagram source) and `diagrammes/sequence_tick.puml` (one-tick sequence), and regenerate with `plantuml diagrammes/diagrams.puml diagrammes/sequence_tick.puml`.
+- **Keep the diagrams in sync.** Four sources, each with its own scope:
+
+  | Source | Scope | Regenerate with |
+  |---|---|---|
+  | `_model.iuml` | the architecture (via `diagrams.puml`) | `plantuml diagrammes/diagrams.puml` |
+  | `sequence_tick.puml` | one tick, call by call | `plantuml diagrammes/sequence_tick.puml` |
+  | `report_diagram.puml` | `report/` alone | `plantuml diagrammes/report_diagram.puml` |
+  | `object_diag.puml` | instances after tick 1 (French) | `plantuml diagrammes/object_diag.puml` |
+
   `diagrams.puml` renders `_model.iuml` twice — simple and annotated — driven by the `$ANNOTATED`
   preprocessor flag, so the two class diagrams cannot drift apart. Never edit the generated PNGs.
+- **The class diagram is the reference.** When code and `_model.iuml` disagree, the default is to
+  change the *code* so the diagram becomes true; amend the model only when it is genuinely wrong.
+  The sequence and object diagrams follow the class diagram, never the reverse.
+- **Diamonds follow one rule** (stated at the top of `_model.iuml`): filled for an immutable value
+  or a mutable object with a single exclusive owner, hollow for a shared mutable instance.
+- **`report/` stays out of the main diagram** — it has its own, and its only seam into the rest of
+  the project is `SimulationDriver`.
 
 ---
 

@@ -8,6 +8,15 @@ skinparam ArrowColor #333333
 skinparam NoteBackgroundColor #FFFDE7
 skinparam NoteBorderColor #C9B458
 
+object "collector: RunCollector" as collector #F0FFF0 {
+  _label = "essai"
+  _steps = 1
+}
+
+object "sink: CsvSink" as sink #F0FFF0 {
+  path = "runs.csv"
+}
+
 object "ctrl: SimulationController" as ctrl {
 }
 
@@ -106,6 +115,10 @@ object "result: PlanResult" as result {
 ' Losanges : même convention que le diagramme de classe — plein pour une
 ' valeur immuable ou un objet mutable à propriétaire unique, creux pour un
 ' objet mutable dont l'instance est partagée.
+' report/ — présent uniquement si le run a été lancé avec --log.
+collector o-- ctrl : _controller
+collector ..> sink : "record() en fin de run"
+
 ctrl o-- sim : sim
 ctrl ..> snap : "génère"
 
@@ -140,8 +153,21 @@ tv1 *-- target_tv1 : target
 ' Notes explicatives
 ' ===================================
 
+note right of collector
+  **Présent seulement avec ``main.py --log runs.csv``.**
+  Sans l'option, aucun collector n'est construit et le
+  frontend pilote ``ctrl`` directement — c'est la relation
+  que dessine le diagramme de classe.
+
+  Le collector décore le contrôleur : il implémente la même
+  interface (SimulationDriver), mesure chaque tick au passage
+  et n'écrit dans le sink qu'en fin de run. Rien en aval — ni
+  sim, ni fleet, ni le coordinateur — ne sait qu'il existe.
+  Détail dans report_diagram.puml.
+end note
+
 note right of a1
-  a1 a fait son premier pas, 
+  a1 a fait son premier pas,
   donc steps_taken = 1.
 end note
 
