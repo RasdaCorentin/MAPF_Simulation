@@ -530,15 +530,40 @@ package "client · frontends" #FFF5EA {
     }
 }
 
+' ── Diamond convention ────────────────────────────────────────────
+' One rule, applied throughout, so the diamonds carry information
+' instead of being decided case by case:
+'
+'   filled  (*--)  an IMMUTABLE value, held by value — sharing the same
+'                  instance is meaningless, so ownership is moot
+'                  (Position, DispatchIntent, PlanResult, TaskView) —
+'                  or a MUTABLE object with a single, exclusive owner
+'                  (Simulation's entities, FleetManager's tasks).
+'   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
+'                  reads or indexes it; something else governs its life.
+'
+' The two edges that changed under this rule are Grid -> WorldEntity and
+' Simulation -> Grid; see the comments on each.
+
 ' ── Inheritance & entities ────────────────────────────────────────
 WorldEntity <|-- Agent
 WorldEntity "1" *-- "1" Position : position
 
 ' ── Grid ──────────────────────────────────────────────────────────
-Grid "1" *-- "0..*" WorldEntity : "> contain"
+' Aggregation, not composition: Grid is a spatial INDEX, not a store.
+' An entity lives in Simulation.entities (and in _pending, before the
+' grid has ever seen it), and grid.remove(agent) during the lift phase
+' of a step does not end its life — it un-indexes it for a few lines.
+' A filled diamond here would claim the opposite, and would also
+' contradict Simulation *-- WorldEntity just below: two exclusive
+' owners of one object cannot both be right.
+Grid "1" o-- "0..*" WorldEntity : "> index"
 
 ' ── Engine: simulation loop ───────────────────────────────────────
-Simulation "1" *-- "1" Grid           : grid
+' Aggregation: the factory builds the Grid and hands the same instance
+' to Simulation and to RandomTaskSource, which reads it to find free
+' cells. Simulation drives the grid; it does not own it exclusively.
+Simulation "1" o-- "1" Grid           : grid
 Simulation "1" *-- "0..*" WorldEntity : entities
 Simulation "1" o-- "1" Coordinator    : coordinator
 Simulation "1" o-- "0..1" Dispatcher  : dispatcher (optional)
