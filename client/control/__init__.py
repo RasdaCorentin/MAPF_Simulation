@@ -7,7 +7,8 @@ instead, and stay ignorant of both.
 """
 
 from .config import ScenarioConfig
+from .driver import SimulationDriver
 from .controller import SimulationController
 from .factory import build
 
-__all__ = ["ScenarioConfig", "SimulationController", "build"]
+__all__ = ["ScenarioConfig", "SimulationDriver", "SimulationController", "build"]

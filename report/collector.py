@@ -8,15 +8,19 @@ from typing import Optional
 from core import Position
 from mrta import TaskState
 
+from client.control import SimulationDriver
+
 from .run_record import RunRecord, SCHEMA_VERSION
 
 
-class RunCollector:
-    """Wraps a SimulationController and measures the run as it happens.
+class RunCollector(SimulationDriver):
+    """Wraps a SimulationDriver and measures the run as it happens.
 
-    A decorator, not a subclass: it forwards every attribute it does not
-    define, so a frontend drives it exactly as it drives the controller and
-    needs no knowledge that it is being observed.
+    A decorator, not a subclass **of the controller**: it wraps one rather
+    than extending it. Implementing SimulationDriver is what makes it a
+    decorator in the proper sense — presenting the same face as the thing it
+    wraps is precisely what allows a frontend to drive either one without
+    knowing which it got.
 
     It measures from the **outside**, through public attributes only
     (``fleet.tasks``, ``fleet.completed_count``, ``sim.last_intent``). Nothing
@@ -61,12 +65,36 @@ class RunCollector:
         self._busy_ticks = 0
         self._idle_max = 0
 
-    def __getattr__(self, name):
-        """Input: an attribute name.
-        Output: the wrapped controller's attribute. Only reached for names
-        this class does not define, so ``step`` below still wins.
+    # ── The decorated contract ───────────────────────────────────────────────
+    # Forwarded explicitly rather than through __getattr__. A decorator that
+    # forwards by catch-all is only substitutable by accident: a missing
+    # member surfaces as an AttributeError at the first click, not at import.
+    # Declaring SimulationDriver makes the substitution checked instead.
+
+    @property
+    def sim(self):
+        """The simulation being driven."""
+        return self._controller.sim
+
+    @property
+    def fleet(self):
+        """The fleet, in MRTA mode; None in static mode."""
+        return self._controller.fleet
+
+    @property
+    def queue(self):
+        """The interactive task queue, in MRTA mode; None in static mode."""
+        return self._controller.queue
+
+    def snapshot(self):
+        """Input: none. Output: the controller's current snapshot."""
+        return self._controller.snapshot()
+
+    def send_batch_to(self, target, agent_ids=None, priority: float = 5.0):
+        """Input: a destination, the eligible agents, a priority.
+        Output: the tasks minted and queued by the wrapped controller.
         """
-        return getattr(self._controller, name)
+        return self._controller.send_batch_to(target, agent_ids, priority)
 
     def step(self):
         """Input: none.

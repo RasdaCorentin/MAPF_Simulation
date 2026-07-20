@@ -19,7 +19,7 @@ client.control.build()'s job, and driving it is the frontend's.
 import argparse
 
 from client.control import ScenarioConfig, build
-from report import CsvSink, NullSink, RunCollector
+from report import CsvSink, RunCollector
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,13 +44,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed",      type=int, default=0)
     parser.add_argument("--tick-ms",   type=int, default=350,
                         help="wall-clock duration of one step, pygame only")
-    parser.add_argument("--results",   type=str, default="experiments.csv",
-                        help="CSV appended with one row per run (default: experiments.csv)")
-    parser.add_argument("--no-results", action="store_true",
-                        help="run without logging the experiment")
+    parser.add_argument("--log",       type=str, default=None, metavar="FILE.csv",
+                        help="append one row per run to FILE (.csv only); "
+                             "omit to run without logging")
     parser.add_argument("--label",     type=str, default="",
-                        help="free-text tag stored with this run")
-    return parser.parse_args()
+                        help="free-text tag stored with this run, --log only")
+    args = parser.parse_args()
+
+    # Only CSV for now. Refusing an unknown suffix here rather than writing
+    # CSV into a file named .db is the difference between a clear error and a
+    # dataset someone trusts for a week before opening it.
+    if args.log is not None and not args.log.endswith(".csv"):
+        parser.error(f"--log only supports .csv for now, got {args.log!r}")
+    return args
 
 
 def main() -> None:
@@ -68,31 +74,33 @@ def main() -> None:
         seed=args.seed,
     )
 
-    # The collector decorates the controller, so the frontends drive it
-    # unchanged and never learn they are being measured.
-    collector = RunCollector(build(config), config, label=args.label)
-    sink = NullSink() if args.no_results else CsvSink(args.results)
+    # Measurement is opt-in. Without --log the frontend drives the controller
+    # itself, which is the relation the class diagram states; with it, the
+    # frontend drives a RunCollector decorating that controller. Both are
+    # SimulationDriver, so the frontend cannot tell which it got.
+    driver = build(config)
+    collector = RunCollector(driver, config, label=args.label) if args.log else None
 
     try:
         if args.frontend == "headless":
             from client.frontends import HeadlessFrontend
-            HeadlessFrontend(collector).run(args.steps or 20)
+            HeadlessFrontend(collector or driver).run(args.steps or 20)
         else:
             from client.frontends import PygameFrontend
-            PygameFrontend(collector, tick_ms=args.tick_ms).run(args.steps)
+            PygameFrontend(collector or driver, tick_ms=args.tick_ms).run(args.steps)
     finally:
         # Logged even on Ctrl-C or a closed window: a run that was interrupted
         # is still an observation, and losing it is how a session's worth of
         # experiments quietly goes missing.
-        record = collector.record()
-        try:
-            sink.append(record)
-            if not args.no_results:
-                print(f"\nrun {record.run_id} ({record.steps} steps) -> {args.results}")
-        except Exception as exc:
-            # Never let a logging failure replace the reason the run ended —
-            # if the run itself raised, that traceback is the useful one.
-            print(f"\ncould not log run {record.run_id}: {exc}")
+        if collector is not None:
+            record = collector.record()
+            try:
+                CsvSink(args.log).append(record)
+                print(f"\nrun {record.run_id} ({record.steps} steps) -> {args.log}")
+            except Exception as exc:
+                # Never let a logging failure replace the reason the run ended
+                # — if the run itself raised, that traceback is the useful one.
+                print(f"\ncould not log run {record.run_id}: {exc}")
 
 
 if __name__ == "__main__":

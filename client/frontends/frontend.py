@@ -1,18 +1,21 @@
 from abc import ABC, abstractmethod
 
-from client.control import SimulationController
+from client.control import SimulationDriver
 
 
 class Frontend(ABC):
-    """Presentation strategy over a SimulationController.
+    """Presentation strategy over a SimulationDriver.
 
     A frontend owns the clock and the output device; it never owns the
-    simulation. ``SimulationController.step()`` stays a pure "advance by
-    one", so pacing, buffering and interaction are entirely a frontend
-    concern.
+    simulation. ``step()`` stays a pure "advance by one", so pacing,
+    buffering and interaction are entirely a frontend concern.
+
+    The parameter is the *interface*, not ``SimulationController``: with
+    ``--log`` the driver is a ``RunCollector`` decorating that controller,
+    and a frontend must not be able to tell the difference.
     """
 
-    def __init__(self, controller: SimulationController) -> None:
+    def __init__(self, controller: SimulationDriver) -> None:
         """Input: the controller to drive and display.
         Output: None.
         """

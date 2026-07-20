@@ -6,8 +6,10 @@ from mrta import FleetManager, QueueTaskSource, Task
 
 from client.view import StepSnapshot, TaskView
 
+from .driver import SimulationDriver
 
-class SimulationController:
+
+class SimulationController(SimulationDriver):
     """Scripting API over a Simulation: step it, query it, task it.
 
     The single seam between a built scenario and whatever drives it — a
@@ -30,12 +32,29 @@ class SimulationController:
         scenario runs in MRTA mode (both None in static mode).
         Output: None.
         """
-        self.sim = simulation
-        self.fleet = fleet
-        self.queue = queue
+        self._sim = simulation
+        self._fleet = fleet
+        self._queue = queue
         self._last_result = PlanResult(
             positions={a.agent_id: a.position for a in simulation.agents},
         )
+
+    # ── The wrapped scenario (read-only: a controller does not re-target) ────
+
+    @property
+    def sim(self) -> Simulation:
+        """The simulation being driven."""
+        return self._sim
+
+    @property
+    def fleet(self) -> Optional[FleetManager]:
+        """The fleet, in MRTA mode; None in static mode."""
+        return self._fleet
+
+    @property
+    def queue(self) -> Optional[QueueTaskSource]:
+        """The interactive task queue, in MRTA mode; None in static mode."""
+        return self._queue
 
     # ── Driving ──────────────────────────────────────────────────────────────
 

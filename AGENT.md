@@ -16,12 +16,13 @@ python demo_pibt.py -d                          # same, debug mode: terminal pri
 python sim_many_pibt.py --seeds 2               # headless L0 benchmark sweep -> sim_results.csv
 ```
 
-**Every `main.py` run appends one row to `experiments.csv`** (`--results` to change the file,
-`--no-results` to skip, `--label` to tag the run) — see `report/` below.
+**Run logging is opt-in**: `--log runs.csv` appends one row per run (`.csv` only for now,
+any other suffix is refused), `--label` tags it. Without `--log` nothing is measured and the
+frontend drives the `SimulationController` directly — see `report/` below.
 
 `main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
 `--mode {mrta,static}`, `--tasks {none,random}`, `--frontend {pygame,headless}`, `--steps`,
-`--seed`, `--tick-ms`.
+`--seed`, `--tick-ms`, `--log FILE.csv`, `--label`.
 
 **In the window**: click an agent to toggle it, drag a rubber band to select several, then click a
 cell to send the batch there. `Space` play/pause · `→` step · `←` replay backwards · `A`/`C`
@@ -65,6 +66,7 @@ There is currently **no test suite** — these are the de-facto regression check
 │   ├── __init__.py             — lazy (PEP 562) re-exports of the legacy pygame renderers
 │   ├── control/                — PART 1: scripting API, pygame-free (COMPOSITION ROOT)
 │   │   ├── config.py           — ScenarioConfig (frozen)
+│   │   ├── driver.py           — SimulationDriver (ABC: what a frontend may drive)
 │   │   ├── factory.py          — build(config) -> SimulationController
 │   │   └── controller.py       — SimulationController: step / run / send_batch_to / snapshot
 │   ├── view/                   — frozen value types shared by control and frontends
@@ -398,22 +400,31 @@ class ResultSink(ABC):              # report/sink.py
 class CsvSink(ResultSink)           # appends; header written once
 class NullSink(ResultSink)          # discards
 
-class RunCollector:                 # report/collector.py
-    RunCollector(controller, config, label="")
+class RunCollector(SimulationDriver):   # report/collector.py
+    RunCollector(driver, config, label="")
     step() / run(steps)             # forwards to the controller, measuring
+    snapshot() / send_batch_to()    # forwarded verbatim
+    sim / fleet / queue             # forwarded properties
     record(label=None) -> RunRecord
-    __getattr__                     # everything else delegates to the controller
 ```
+
+Enabled only by `main.py --log FILE.csv`. Without it no collector is built at all, so the
+frontend drives the `SimulationController` itself.
 
 - **Every field is a plain scalar.** A CSV header and a SQL table are two renderings of the same
   record; anything nested would serialise to CSV and then have nowhere to go in a relational
   column. `sql_create_table()` lives next to the dataclass so the relational shape cannot drift
   from it, and resolves types through `typing.get_type_hints` rather than by parsing annotation
   text — guessing from the repr silently mistypes exactly the `Optional` columns.
-- **`RunCollector` is a decorator, not a subclass**: frontends drive it exactly as they drive
-  `SimulationController` and never learn they are being measured. It observes through **public
-  attributes only** (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics
-  can be reworked — and they will be — without the engine or the fleet changing.
+- **`RunCollector` decorates the controller, it does not extend it** — but both implement
+  `SimulationDriver` (`client/control/driver.py`), which is what makes the substitution a
+  checked contract rather than `__getattr__` luck: a missing member now fails at instantiation
+  instead of at the first click. It observes through **public attributes only**
+  (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics can be reworked —
+  and they will be — without the engine or the fleet changing.
+- **Measurement is opt-in.** `report/` is still being validated, so it stays off the nominal
+  path: no `--log`, no collector, and `Frontend -> SimulationController` holds exactly as the
+  class diagram draws it.
 - **Appending to a changed schema raises.** A new column would otherwise shift every later value
   one place left, producing a file that still parses and is quietly wrong. `schema_version` is
   stored on every row so a dataset spanning code changes stays interpretable; `git_rev` and
