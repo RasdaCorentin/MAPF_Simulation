@@ -3,6 +3,14 @@
 > **This is the project map for coding agents. Everything needed to work on this repo is here.**
 > **Do not re-explore the tree to answer structural questions — read this file first.**
 
+**Two companion files are binding and are *not* reproduced here:**
+- **`CONVENTION.md`** — repository layout, branch naming, and Conventional Commits. Every commit,
+  file name and new file must follow it. Read it before your first commit.
+- **`README.md` / `GUIDE.md`** — human-facing overview and guided tour.
+
+The reference for architecture is `diagrammes/_model.iuml` (the class diagram): when this file,
+the code and the diagram disagree, **the diagram arbitrates** — see *Rules and invariants*.
+
 ---
 
 ## Running the simulation
@@ -28,7 +36,9 @@ frontend drives the `SimulationController` directly — see `report/` below.
 cell to send the batch there. `Space` play/pause · `→` step · `←` replay backwards · `A`/`C`
 select all / clear · `Q` quit.
 
-Dependencies: `requirements.txt` + pygame (`pip install pygame`).
+Dependencies: `pip install -r requirements.txt` — pygame is the only one, pinned `>=2.5`.
+Everything except `client/frontends/pygame_frontend.py`, `sidebar.py` and the legacy renderer
+runs without it.
 
 **Fastest ways to exercise the code without a window** (use these to verify changes):
 ```bash
@@ -63,8 +73,10 @@ There is currently **no test suite** — these are the de-facto regression check
 │       └── simulation.py       — Simulation (engine, coordinator mandatory, dispatcher optional)
 │
 ├── client/                     — presentation: scripting API, frozen views, frontends
-│   ├── __init__.py             — lazy (PEP 562) re-exports of the legacy pygame renderers
+│   ├── __init__.py             — lazy (PEP 562) re-export of PIBTInteractiveRenderer ONLY
+│   ├── palette.py              — shared drawing colours (data, no pygame import)
 │   ├── control/                — PART 1: scripting API, pygame-free (COMPOSITION ROOT)
+│   │   ├── __init__.py         — re-exports ScenarioConfig, SimulationDriver, …, build
 │   │   ├── config.py           — ScenarioConfig (frozen)
 │   │   ├── driver.py           — SimulationDriver (ABC: what a frontend may drive)
 │   │   ├── factory.py          — build(config) -> SimulationController
@@ -73,13 +85,12 @@ There is currently **no test suite** — these are the de-facto regression check
 │   │   ├── task_view.py        — TaskView (frozen projection of a Task, assignee_id: int)
 │   │   └── snapshot.py         — StepSnapshot (result, goals, objects, tasks, counters)
 │   ├── frontends/              — PART 2: presentation only
+│   │   ├── __init__.py         — lazy (PEP 562) PygameFrontend, so headless never imports pygame
 │   │   ├── frontend.py         — Frontend (ABC: run(steps))
 │   │   ├── pygame_frontend.py  — interactive window: board + selection + batch dispatch
 │   │   ├── sidebar.py          — Sidebar: selection readout, task tallies, buttons
 │   │   └── headless_frontend.py — terminal output, zero pygame
-│   ├── renderer.py             — LEGACY Renderer (generic pygame loop) — demo_pibt.py only
-│   ├── pibt_renderer.py        — LEGACY PIBTRenderer
-│   └── pibt_interactive_renderer.py — LEGACY PIBTInteractiveRenderer (pre-computed history)
+│   └── pibt_interactive_renderer.py — LEGACY renderer (pre-computed history), demo_pibt.py only
 │
 ├── mrta/                        — Multi-Robot Task Allocation, depends only on core
 │   ├── __init__.py              — re-exports: Task, TaskState, TaskSource, QueueTaskSource,
@@ -106,16 +117,28 @@ There is currently **no test suite** — these are the de-facto regression check
 │       ├── random_allocator.py         — RandomAllocator: random task/agent matching
 │       └── kdtree_greedy_allocator.py  — KDTreeGreedyAllocator: design stub (NotImplementedError)
 │
-├── report/                      — experiment log, depends on core + mrta (+ a controller)
+├── report/                      — experiment log, OPT-IN behind main.py --log
+│   ├── __init__.py              — re-exports RunRecord, ResultSink, CsvSink, NullSink, RunCollector
 │   ├── run_record.py            — RunRecord: THE schema, flat scalars; sql_create_table()
 │   ├── sink.py                  — ResultSink (ABC), CsvSink (append), NullSink
-│   └── collector.py             — RunCollector: decorates a controller and measures it
+│   └── collector.py             — RunCollector: decorates a SimulationDriver and measures it
 │
-├── diagrammes/                  — PlantUML class diagram sources + generated PNGs
+├── diagrammes/                  — PlantUML sources + PNGs: class, sequence, object, report
+│   └── script_perso.sh          — inotifywait watch loop, regenerates on save (incl. .iuml)
+├── README.md                    — human-facing overview
+├── GUIDE.md                     — guided tour of the project
+├── CONVENTION.md                — git/branch/commit conventions — BINDING on every commit
+├── CLAUDE.md                    — pointer that imports AGENT.md + CONVENTION.md
 ├── rapport_plan.md              — design report on the task lifecycle (French, working doc)
+├── requirements.txt             — pygame>=2.5, the only dependency
+├── LICENSE
 ├── main.py                      — CLI entry point (argparse -> client.control.build)
-└── demo_pibt.py                 — legacy interactive PIBT demo entry point
+├── demo_pibt.py                 — legacy interactive PIBT demo entry point
+└── sim_many_pibt.py             — headless benchmark sweep -> sim_results.csv
 ```
+
+Every package also carries an `__init__.py`; only those with behaviour worth knowing are shown
+above. `experiments.csv` / `sim_results.csv` may sit at the root — both are gitignored outputs.
 
 **Dependency direction** (strict, matches the class diagram):
 
@@ -123,8 +146,9 @@ There is currently **no test suite** — these are the de-facto regression check
 mrta            -> core
 algo            -> core, mrta
 client.view     -> core, mrta (VALUE types only: Position, TaskState)
-client.control  -> core, algo, mrta            (composition root)
-client.frontends-> core, client.view           (read-only)
+client.control  -> core, algo, mrta                     (composition root)
+client.frontends-> core, client.view, client.control    (the ABC only)
+report          -> core, mrta, client.control           (the ABC only)
 ```
 
 `client/` can no longer "depend only on core": picking the algorithm and wiring the fleet *is*
@@ -132,6 +156,12 @@ the scripting API's job. The rule that replaces it: **frontends know neither `al
 *behaviour*** (`FleetManager`, `Allocator`, `TaskSource`) — they see frozen values only.
 `TaskView.state` importing `TaskState` is a dependency on a *value*, not on behaviour;
 duplicating the enum client-side would reintroduce drift, typing it `str` would lose the safety.
+
+**The two `client.control` arrows are narrow on purpose.** `client/frontends/frontend.py` and
+`report/collector.py` each import exactly one name — `SimulationDriver`, the ABC. Neither touches
+`build()`, `ScenarioConfig` or any concrete wiring, so the composition root stays the only place
+naming an algorithm. `SimulationDriver` is the project's one outward-facing interface; treat an
+import of anything *else* from `client.control` by a frontend or by `report` as a layering bug.
 
 ---
 
@@ -156,10 +186,15 @@ class WorldEntity:
     position:        Position
     appear_at:       int   # step at which the entity spawns (0 = immediate)
     blocks_movement: bool  # True -> cell impassable for agents
-    scale:           int   # footprint size in cells (default 1)
+    scale:           int   # RESERVED — stored, never read (see below)
     active:          bool  # property, True by default
 ```
 Common base for any entity placed on the grid. Blocking obstacles are created with `WorldEntity(id, pos, blocks_movement=True)` — **no dedicated subclass needed**.
+
+⚠ **`scale` is reserved, not implemented.** It is assigned in `__init__` and read nowhere in the
+repo: `Grid` indexes one cell per entity, and neither the planner nor any renderer consults it.
+Multi-cell footprints would need `Grid`, `is_blocked`, `_validate` and PIBT's candidate generation
+to change together. Do not write code that assumes it works.
 
 ---
 
@@ -198,7 +233,7 @@ class Grid:
 
 ### `PlanResult` — `core/engine/plan_result.py`
 ```python
-@dataclass
+@dataclass(frozen=True)
 class PlanResult:
     positions:   dict[int, Position]   # agent_id -> next Position (universal contract)
     moves:       dict[int, tuple]      # agent_id -> (from, to)     (universal contract)
@@ -207,6 +242,12 @@ class PlanResult:
     priorities:  dict[int, float]      # agent_id -> priority          (optional diagnostic)
 ```
 DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics, left empty outside the PIBT family. Keys are `agent_id` integers so it can cross the core -> client boundary without exposing `Agent` objects.
+
+**Frozen**, like every value crossing that boundary. The same instance is referenced by
+`SimulationController._last_result` *and* archived in a `StepSnapshot`; a snapshot is documented
+to read identically N steps later, so the guarantee rests on the type rather than on the
+convention that coordinators build the object whole and nobody writes to it afterwards. The
+contained dicts are not deep-frozen — this is a guard, not a proof.
 
 ---
 
@@ -260,20 +301,34 @@ class Simulation:
     __init__(grid, coordinator, dispatcher=None)
     add_agent(agent)         # place + append
     add_object(entity)       # append + place immediately if appear_at <= current_step
-    step() -> PlanResult     # spawn -> dispatch -> plan -> move ; returns the PlanResult
+    step() -> PlanResult     # spawn -> dispatch -> plan -> validate -> lift -> place
+    _validate(result)        # rejects an inapplicable plan BEFORE any mutation
 ```
 
-**`step()` logic:**
+**`step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared against the
+already-incremented step (an entity with `appear_at=1` spawns on the first `step()`):
 ```python
 # 1. Spawn deferred entities whose appear_at step has been reached
 # 2. Dispatch: intent = self.dispatcher.dispatch(...) if dispatcher else DispatchIntent()  (empty)
+#    stored in self.last_intent
 # 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid, intent)
-# 4. Apply result.positions (lift agents, move, place back)
-# 5. Return result — clients read diagnostics from it without importing algo
+# 4. Validate: self._validate(result) — raises before the grid is touched
+# 5. Lift:  grid.remove(agent) for every agent whose target differs from its position
+# 6. Place: agent.move_to(target) then grid.place(agent)
+#    Return result — clients read diagnostics from it without importing algo
 ```
-The `dispatch → plan` order is owned by `step()`, so a caller cannot plan on stale goals. Movement is applied by `step()` itself (lift-then-place: `grid.remove` → `agent.move_to` → `grid.place`) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
+The `dispatch → plan` order is owned by `step()`, so a caller cannot plan on stale goals. Movement is applied by `step()` itself (lift-then-place) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
 
-Note: `step()` returning the `PlanResult` is the one deliberate deviation from the class diagram (which shows `void`) — it's how renderers get PIBT diagnostics without depending on `algo`.
+**`_validate()` rejects three things**, before any mutation, so the lift/place transaction cannot
+fail halfway and strand agents off the grid:
+1. **two agents claiming one cell** — checked for *every* agent, stationary ones included, so a
+   mover cannot target a cell a stationary agent is keeping;
+2. **a target off the grid** (`not grid.is_valid`);
+3. **a target under an active blocking entity**.
+
+Checks 2 and 3 are **deliberately skipped for agents that do not move**. An obstacle spawning via
+`appear_at` onto an already-occupied cell would otherwise be reported as a planning error, which
+it is not — the planner never proposed that overlap.
 
 ---
 
@@ -303,18 +358,48 @@ collision-free starts with `random.Random(seed)`, picks the coordinator, and in 
 attaches a `QueueTaskSource` (so `send_batch_to` works), composing a `RandomTaskSource` alongside
 it when `tasks="random"`. Swapping in a new algorithm or allocator touches this file only.
 
+### `SimulationDriver` — `client/control/driver.py`
+```python
+class SimulationDriver(ABC):
+    sim:   Simulation              # abstract property
+    fleet: FleetManager | None     # abstract property
+    queue: QueueTaskSource | None  # abstract property
+
+    {abstract} step() -> StepSnapshot
+    {abstract} run(steps) -> list[StepSnapshot]
+    {abstract} snapshot() -> StepSnapshot
+    {abstract} send_batch_to(target, agent_ids=None, priority=5.0) -> list[Task]
+```
+**The seam a frontend depends on** — and the only thing that crosses the `client.control`
+boundary outward. Two classes implement it: `SimulationController` normally, and `RunCollector`
+(`report/`) when `main.py --log` wraps one to measure it. A frontend must not be able to tell
+which it received.
+
+Declaring the interface rather than relying on `__getattr__` forwarding is what makes that
+substitution *checked*: a decorator missing a member now fails at instantiation instead of at the
+first click. It is also what a decorator means — presenting the same face as the thing it wraps
+is precisely what allows the substitution.
+
+`sim` is on the interface because `PygameFrontend` genuinely reads `sim.grid` and `sim.agents` to
+hit-test clicks (8 call sites). **That is a wider seam than one would like**, and it is the honest
+record of what exists rather than what we would prefer; narrowing it — routing hit-testing through
+`StepSnapshot` — is a separate change, and this ABC is where it would be enforced.
+
 ### `SimulationController` — `client/control/controller.py`
 ```python
-class SimulationController:
-    sim: Simulation
-    fleet: FleetManager | None      # MRTA mode only
-    queue: QueueTaskSource | None   # MRTA mode only
+class SimulationController(SimulationDriver):
+    sim: Simulation                 # read-only property
+    fleet: FleetManager | None      # read-only property, MRTA mode only
+    queue: QueueTaskSource | None   # read-only property, MRTA mode only
 
     step() -> StepSnapshot                    # pure "advance by one" — owns no clock
     run(steps) -> list[StepSnapshot]
     send_batch_to(target, agent_ids=None, priority=5.0) -> list[Task]
     snapshot() -> StepSnapshot
 ```
+Read-only properties over `_sim`/`_fleet`/`_queue`: a controller never re-targets its scenario,
+and the ABC requires the attribute half of the contract to be declarable.
+
 The single seam between a built scenario and whatever drives it. `send_batch_to` mints one task
 per destination cell — `target` first, then outwards by BFS over free cells — with
 `eligible=frozenset(agent_ids)`, and pushes them into the queue.
@@ -353,7 +438,7 @@ keep a history while the engine runs on.
 ### `Frontend` / `HeadlessFrontend` / `PygameFrontend` — `client/frontends/`
 ```python
 class Frontend(ABC):
-    controller: SimulationController
+    controller: SimulationDriver     # the INTERFACE — may be a RunCollector
     def run(steps: int)
 
 class HeadlessFrontend(Frontend):   # terminal, zero pygame
@@ -379,89 +464,20 @@ batch. Keys: `Space` play/pause · `→` step · `←` replay back · `A`/`C` se
 
 ---
 
-## Classes in `report/`
-
-```python
-@dataclass(frozen=True)
-class RunRecord:                    # report/run_record.py — THE schema
-    run_id, timestamp, schema_version, git_rev, label      # identity
-    width, height, agents, obstacles, algo, mode, task_source, seed,
-    patience, max_attempts                                  # scenario
-    steps, wall_ms, step_ms_mean                            # run
-    tasks_created/done/failed/unfinished, completion_rate,
-    failed_unreachable, failed_stalled, reassignments, attempts_max
-    wait_mean/max, service_mean/max, detour_mean/max         # latency
-    drift_agents, drift_mean, drift_max, displaced_events, goalless_frac
-    busy_frac, idle_max
-    columns() -> list[str] ; as_row() -> dict ; sql_create_table(table) -> str
-
-class ResultSink(ABC):              # report/sink.py
-    append(record: RunRecord)
-class CsvSink(ResultSink)           # appends; header written once
-class NullSink(ResultSink)          # discards
-
-class RunCollector(SimulationDriver):   # report/collector.py
-    RunCollector(driver, config, label="")
-    step() / run(steps)             # forwards to the controller, measuring
-    snapshot() / send_batch_to()    # forwarded verbatim
-    sim / fleet / queue             # forwarded properties
-    record(label=None) -> RunRecord
-```
-
-Enabled only by `main.py --log FILE.csv`. Without it no collector is built at all, so the
-frontend drives the `SimulationController` itself.
-
-- **Every field is a plain scalar.** A CSV header and a SQL table are two renderings of the same
-  record; anything nested would serialise to CSV and then have nowhere to go in a relational
-  column. `sql_create_table()` lives next to the dataclass so the relational shape cannot drift
-  from it, and resolves types through `typing.get_type_hints` rather than by parsing annotation
-  text — guessing from the repr silently mistypes exactly the `Optional` columns.
-- **`RunCollector` decorates the controller, it does not extend it** — but both implement
-  `SimulationDriver` (`client/control/driver.py`), which is what makes the substitution a
-  checked contract rather than `__getattr__` luck: a missing member now fails at instantiation
-  instead of at the first click. It observes through **public attributes only**
-  (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics can be reworked —
-  and they will be — without the engine or the fleet changing.
-- **Measurement is opt-in.** `report/` is still being validated, so it stays off the nominal
-  path: no `--log`, no collector, and `Frontend -> SimulationController` holds exactly as the
-  class diagram draws it.
-- **Appending to a changed schema raises.** A new column would otherwise shift every later value
-  one place left, producing a file that still parses and is quietly wrong. `schema_version` is
-  stored on every row so a dataset spanning code changes stays interpretable; `git_rev` and
-  `seed` are what make a row reproducible after the fact.
-- **The run is logged in a `finally`**, so a window closed by hand or a Ctrl-C still records an
-  observation; a logging failure is reported without masking the reason the run ended.
-
-Swapping in SQL later means one new `ResultSink` subclass and nothing else — verified by loading
-`experiments.csv` into sqlite with `sql_create_table()` unedited.
-
----
-
-## Legacy renderers in `client/` (used by `demo_pibt.py` only)
+### Legacy renderer — `client/pibt_interactive_renderer.py` (`demo_pibt.py` only)
 
 Kept as the pre-existing regression path. New work goes through `client/frontends/`.
-They are re-exported lazily from `client/__init__.py` (PEP 562) so importing `client.control`
+It is re-exported lazily from `client/__init__.py` (PEP 562) so importing `client.control`
 or `client.view` never pulls pygame in.
 
-### `Renderer` — `client/renderer.py`
-```python
-class Renderer:
-    sim: Simulation
-    _caption: str = "Grid Simulation"   # override in subclasses
-    def run(steps: int, pause: float = 1.0)
-    def _draw(screen, font, font_sm, font_hdr, w, h)
-```
-Generic rendering: grid, agents (colored circles), static entities (squares). Constants `CELL=60`, `MARGIN=36`, `AGENT_COLORS`, `OBJ_COLORS` defined here and importable. Stores the last `PlanResult` from `sim.step()` in `self._last_result` for subclasses.
+`Renderer` and `PIBTRenderer` **were removed** as dead code: nothing referenced them but the lazy
+table and the docs advertising them. Their colour constants survived into `client/palette.py`
+(plain tuples, no pygame import), which is what `PIBTInteractiveRenderer` actually used them for.
 
-### `PIBTRenderer` — `client/pibt_renderer.py`
-```python
-class PIBTRenderer(Renderer):
-    _caption = "PIBT Simulation"
-    def _draw(...)   # overridden: adds goal cells (□) + agent priorities
-```
-Usage: `PIBTRenderer(sim).run(steps=30, pause=0.5)`. Read-only, forward playback. Reads goals from `sim.coordinator.goals` (duck-typed public attribute — no `algo` import) and priorities from `self._last_result.priorities`.
+`client/__init__.py` deliberately does **not** re-export `StepSnapshot`: the legacy renderer
+defines its own, distinct from `client.view.StepSnapshot`, and exposing both from one package
+made `from client import StepSnapshot` silently return the wrong type.
 
-### `PIBTInteractiveRenderer` — `client/pibt_interactive_renderer.py`
 ```python
 class PIBTInteractiveRenderer:
     sim: Simulation
@@ -480,91 +496,6 @@ Usage: `PIBTInteractiveRenderer(sim).run(steps=80, auto_ms=500)`.
 Keyboard: `Space` pause/play · `->` step forward · `<-` step back · `Q` quit.
 
 The footer shows, for each step, the priority order, each agent's move, and any priority inheritances triggered — read from `snap.result` (a `PlanResult`), not from any `algo`-specific attribute.
-
----
-
-## Classes in `algo/`
-
-### `RandomWalkCoordinator` — `algo/coordination/random_walk.py`
-```python
-class RandomWalkCoordinator(Coordinator):
-    def plan(agents, grid, intent) -> PlanResult  # per-agent random walk; ignores intent
-```
-Minimal coordinator: each agent tries random directions until it finds a valid, unblocked, not-yet-claimed cell (falls back to staying in place).
-
----
-
-### PIBT decomposition — `algo/coordination/`
-
-PIBT is split across three classes: `PIBTCoordinator` holds the algorithm, while reservations and priorities each live in their own class (`ReservationTable`, `PriorityManager`). `PIBTCoordinator` implements `Coordinator`. **Zero pygame dependency** — rendering lives in `client/`.
-
-```python
-class ReservationTable:            # algo/coordination/reservation_table.py
-    _reserved: dict[Position, Agent]
-    reserve(agent, pos)             # releases the agent's previous reservation first
-    release(agent)                  # frees the agent's reservation (backtracking)
-    get_reserving_agent(pos) -> Agent | None
-    get_reservation(agent) -> Position | None
-    clear()
-
-class PriorityManager:             # algo/coordination/priority_manager.py
-    _base: dict[Agent, float]      # priorities set explicitly (intent re-seed, inheritance, goal-reached)
-    _dynamic: dict[Agent, float]   # effective priorities used to rank agents
-    update(agents)                  # inits missing agents, then decays every dynamic priority by 1
-    get_priority(agent) -> float
-    set_base(agent, p)              # writes both _base and _dynamic immediately
-
-class PIBTCoordinator(Coordinator):   # algo/coordination/pibt_coordinator.py
-    goals: dict[Agent, Position]     # public — rebuilt each tick from the intent; read by renderers
-    _reservations: ReservationTable
-    _priorities: PriorityManager
-    _processed: set[Agent]
-    _inheritance: list[tuple[Agent, Agent]]
-    _last_intent: dict[int, tuple]   # last (goal, priority) per agent — for the re-seed guard
-
-    plan(agents, grid, intent) -> PlanResult
-    _apply_intent(agents, intent)          # rebuild goals; re-seed base priority only on change
-    _pibt(agent, parent, grid) -> bool     # grid passed as an argument, no stored grid state
-    _h(pos, agent, grid) -> int            # Manhattan distance heuristic
-```
-
-**Usage** — goals/priorities come from the intent, via a dispatcher:
-```python
-a0 = Agent(0, Position(0, 0))
-a1 = Agent(1, Position(9, 9))
-
-pibt = PIBTCoordinator()
-dispatcher = StaticDispatcher(
-    goals={0: Position(9, 9), 1: Position(0, 0)},
-    priorities={0: 5.0, 1: 3.0},          # optional
-)
-sim = Simulation(grid, coordinator=pibt, dispatcher=dispatcher)
-sim.add_agent(a0)
-sim.add_agent(a1)
-
-PIBTRenderer(sim).run(steps=30, pause=0.5)
-```
-
-**Internal mechanics:**
-- Goals are rebuilt each tick from `intent.goals` (an agent with no goal stays in place).
-- **Re-seed guard**: the base priority is re-seeded from `intent.priorities` **only** when an agent's goal or business priority changed since last tick — otherwise the dynamic priority drift (anti-starvation) would be wiped. This is the crux of keeping the coordinator stateless about allocation while stateful about navigation.
-- Dynamic priorities decay by 1 every step -> prevents starvation.
-- An agent at its goal gets base priority `-inf` (processed last, prefers to stay).
-- Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `_pibt(k, i, grid)` recurses.
-- Backtracking: if k cannot move, i tries another candidate cell (`ReservationTable.release`).
-- Obstacles are detected via `entity.blocks_movement and entity.active` on the grid's static entities.
-
-**Adding a new Coordinator:**
-```python
-# in algo/coordination/my_algo.py
-from core import Coordinator, PlanResult
-
-class MyAlgo(Coordinator):
-    def plan(self, agents, grid, intent) -> PlanResult:
-        positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
-        return PlanResult(positions=positions, moves={...})
-```
-Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
 
 ---
 
@@ -617,6 +548,8 @@ class FleetManager(Dispatcher):    # mrta/fleet_manager.py — concrete Dispatch
     _intake(step, grid)            # stamps ids; FAILED at once if the target is unreachable
     _allocate(agents, grid)        # one allocator call per eligibility class, restricted first
     _build_intent() -> DispatchIntent  # goals/priorities of the ASSIGNED tasks
+    _by_eligibility(pending)       # static — groups pending tasks, restricted classes FIRST
+    _is_obstructed(pos, grid) / _manhattan(a, b)   # static helpers
 ```
 
 **Task lifecycle** — `PENDING -> ASSIGNED -> DONE` is nominal; `FAILED` is terminal for
@@ -649,7 +582,103 @@ untouched and new allocators need no adaptation.
 
 ---
 
-## Classes in `algo/allocation/`
+## Classes in `algo/`
+
+### `RandomWalkCoordinator` — `algo/coordination/random_walk.py`
+```python
+class RandomWalkCoordinator(Coordinator):
+    def plan(agents, grid, intent) -> PlanResult  # per-agent random walk; ignores intent
+```
+Minimal coordinator: each agent tries random directions until it finds a valid, unblocked, not-yet-claimed cell (falls back to staying in place).
+
+---
+
+### PIBT decomposition — `algo/coordination/`
+
+PIBT is split across three classes: `PIBTCoordinator` holds the algorithm, while reservations and priorities each live in their own class (`ReservationTable`, `PriorityManager`). `PIBTCoordinator` implements `Coordinator`. **Zero pygame dependency** — rendering lives in `client/`.
+
+```python
+class ReservationTable:            # algo/coordination/reservation_table.py
+    _reserved: dict[Position, Agent]
+    reserve(agent, pos)             # releases the agent's previous reservation first
+    release(agent)                  # frees the agent's reservation (backtracking)
+    get_reserving_agent(pos) -> Agent | None
+    get_reservation(agent) -> Position | None
+    clear()
+
+class PriorityManager:             # algo/coordination/priority_manager.py
+    __init__(initial_priorities: dict[Agent, float] | None = None)
+    _base: dict[Agent, float]      # priorities set explicitly (intent re-seed, inheritance, goal-reached)
+    _dynamic: dict[Agent, float]   # effective priorities used to rank agents
+    update(agents)                  # inits missing agents, then decays every dynamic priority by 1
+    get_priority(agent) -> float
+    get_base(agent) -> float        # what set_base last wrote — read before the -inf demotion
+    set_base(agent, p)              # writes both _base and _dynamic immediately
+
+class PIBTCoordinator(Coordinator):   # algo/coordination/pibt_coordinator.py
+    goals: dict[Agent, Position]     # public — rebuilt each tick from the intent; read by renderers
+    _reservations: ReservationTable
+    _priorities: PriorityManager
+    _processed: set[Agent]
+    _inheritance: list[tuple[Agent, Agent]]
+    _last_intent: dict[int, tuple]   # last (goal, priority) per agent — for the re-seed guard
+    _demoted: dict[Agent, float]     # base priority overwritten by the -inf demotion, kept to undo it
+
+    plan(agents, grid, intent) -> PlanResult
+    _apply_intent(agents, intent)          # rebuild goals; re-seed base priority only on change
+    _pibt(agent, parent, grid) -> bool     # grid passed as an argument, no stored grid state
+    _h(pos, agent, grid) -> int            # Manhattan distance heuristic
+```
+
+**Usage** — goals/priorities come from the intent, via a dispatcher:
+```python
+a0 = Agent(0, Position(0, 0))
+a1 = Agent(1, Position(9, 9))
+
+pibt = PIBTCoordinator()
+dispatcher = StaticDispatcher(
+    goals={0: Position(9, 9), 1: Position(0, 0)},
+    priorities={0: 5.0, 1: 3.0},          # optional
+)
+sim = Simulation(grid, coordinator=pibt, dispatcher=dispatcher)
+sim.add_agent(a0)
+sim.add_agent(a1)
+
+for _ in range(30):
+    result = sim.step()      # PlanResult: positions + PIBT diagnostics
+```
+To *watch* it instead, go through the scripting API — `client.control.build(ScenarioConfig(...))`
+then a `Frontend` — rather than driving `Simulation` by hand. This snippet exists to show the
+coordinator/dispatcher wiring, not as the recommended entry point.
+
+**Internal mechanics:**
+- Goals are rebuilt each tick from `intent.goals` (an agent with no goal stays in place).
+- **Re-seed guard**: the base priority is re-seeded from `intent.priorities` **only** when an agent's goal or business priority changed since last tick — otherwise the dynamic priority drift (anti-starvation) would be wiped. This is the crux of keeping the coordinator stateless about allocation while stateful about navigation.
+- Dynamic priorities decay by 1 every step -> prevents starvation.
+- An agent at its goal gets base priority `-inf` (processed last, prefers to stay). **The demotion
+  is reversible**: "at its goal" is a *state*, so the overwritten base is saved in `_demoted` and
+  restored the moment the state stops holding — the goal moved, or inheritance pushed the agent
+  off it. Writing `-inf` without restoring it stranded the agent at the bottom of the ranking for
+  the rest of the run.
+- Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `_pibt(k, i, grid)` recurses.
+- Backtracking: if k cannot move, i tries another candidate cell (`ReservationTable.release`).
+- Obstacles are detected via `entity.blocks_movement and entity.active` on the grid's static entities.
+
+**Adding a new Coordinator:**
+```python
+# in algo/coordination/my_algo.py
+from core import Coordinator, PlanResult
+
+class MyAlgo(Coordinator):
+    def plan(self, agents, grid, intent) -> PlanResult:
+        positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
+        return PlanResult(positions=positions, moves={...})
+```
+Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
+
+---
+
+### `algo/allocation/`
 
 ```python
 class RandomAllocator(Allocator):          # implemented — random pending/free matching
@@ -661,14 +690,84 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 
 ---
 
-## Strict rules
+## Classes in `report/`
+
+```python
+@dataclass(frozen=True)
+class RunRecord:                    # report/run_record.py — THE schema
+    run_id, timestamp, schema_version, git_rev, label      # identity
+    width, height, agents, obstacles, algo, mode, task_source, seed,
+    patience, max_attempts                                  # scenario
+    steps, wall_ms, step_ms_mean                            # run
+    tasks_created/done/failed/unfinished, completion_rate,
+    failed_unreachable, failed_stalled, reassignments, attempts_max
+    wait_mean/max, service_mean/max, detour_mean/max         # latency
+    drift_agents, drift_mean, drift_max, displaced_events, goalless_frac
+    busy_frac, idle_max
+    columns() -> list[str] ; as_row() -> dict ; sql_create_table(table) -> str
+
+class ResultSink(ABC):              # report/sink.py
+    append(record: RunRecord)
+class CsvSink(ResultSink)           # appends; header written once
+class NullSink(ResultSink)          # discards
+
+class RunCollector(SimulationDriver):   # report/collector.py
+    RunCollector(driver, config, label="")
+    step() / run(steps)             # forwards to the controller, measuring
+    snapshot() / send_batch_to()    # forwarded verbatim
+    sim / fleet / queue             # forwarded properties
+    record(label=None) -> RunRecord
+```
+
+Enabled only by `main.py --log FILE.csv`. Without it no collector is built at all, so the
+frontend drives the `SimulationController` itself.
+
+- **Every field is a plain scalar.** A CSV header and a SQL table are two renderings of the same
+  record; anything nested would serialise to CSV and then have nowhere to go in a relational
+  column. `sql_create_table()` lives next to the dataclass so the relational shape cannot drift
+  from it, and resolves types through `typing.get_type_hints` rather than by parsing annotation
+  text — guessing from the repr silently mistypes exactly the `Optional` columns.
+- **`RunCollector` decorates the controller, it does not extend it** — but both implement
+  `SimulationDriver` (`client/control/driver.py`), which is what makes the substitution a
+  checked contract rather than `__getattr__` luck: a missing member now fails at instantiation
+  instead of at the first click. It observes through **public attributes only**
+  (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics can be reworked —
+  and they will be — without the engine or the fleet changing.
+- **Measurement is opt-in.** `report/` is still being validated, so it stays off the nominal
+  path: without `--log` no collector is built and the frontend drives the controller itself.
+  Either way the class diagram's `Frontend o-- SimulationDriver` holds.
+- **Appending to a changed schema raises.** A new column would otherwise shift every later value
+  one place left, producing a file that still parses and is quietly wrong. `schema_version` is
+  stored on every row so a dataset spanning code changes stays interpretable; `git_rev` and
+  `seed` are what make a row reproducible after the fact.
+- **The run is logged in a `finally`**, so a window closed by hand or a Ctrl-C still records an
+  observation; a logging failure is reported without masking the reason the run ended.
+
+Swapping in SQL later means one new `ResultSink` subclass and nothing else — verified by loading
+a `--log` CSV into sqlite with `sql_create_table()` unedited.
+
+---
+
+## Rules and invariants
+
+Two different things, kept apart on purpose. A **rule** constrains what you may write — breaking
+one is a layering bug, and no amount of local convenience justifies it. An **invariant** is a
+property the code already guarantees; your change does not have to restate it, but it must not
+break it. When in doubt, the class diagram arbitrates (see the diagram rules below).
+
+### Hard rules — never violate these
 
 - **`core/` must never import `client/`, `algo/`, or `mrta/`** — strictly one-directional dependency.
 - **`mrta/` must never import `algo/` or `client/`** — it depends only on `core`.
 - **`algo/` must never import `client/`** — algorithms are pure, no rendering.
 - **`client/frontends/` must never import `algo/`, nor mrta *behaviour*** (`FleetManager`,
-  `Allocator`, `TaskSource`) — only `core` and the frozen types in `client/view/`. Value types
-  (`Position`, `TaskState`) are fine. Composition belongs in `client/control/`.
+  `Allocator`, `TaskSource`). Allowed: `core`, the frozen types in `client/view/`, and
+  `SimulationDriver` from `client.control` — **that one name only**. Value types (`Position`,
+  `TaskState`) are fine. Composition belongs in `client/control/`.
+- **A frontend reads the engine only for hit-testing.** `PygameFrontend` does touch
+  `controller.sim.grid` / `.agents` to turn a click into a cell or an agent. This is a known,
+  bounded exception, declared on `SimulationDriver`; everything else must come from
+  `StepSnapshot`. Do not widen it — no frontend may mutate the grid, the fleet or the coordinator.
 - **Visual/rendering changes -> `client/frontends/` only.**
 - **Never call `SimulationController.step()` in a loop with a sleep** — a frontend owns the
   clock, and any real-time loop needs the `MAX_STEPS_PER_FRAME` clamp.
@@ -693,7 +792,7 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 
 ---
 
-## Key design constraints
+### Invariants — properties the code already maintains
 
 | Constraint | Detail |
 |---|---|
@@ -713,4 +812,3 @@ class KDTreeGreedyAllocator(Allocator):    # design stub — raises NotImplement
 | `-inf` demotion is reversible | "at its goal" is a *state*; `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding |
 | Snapshots are projections | `TaskView`/`StepSnapshot` copy values and key on `agent_id`; a snapshot must read identically N steps later |
 | No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
-

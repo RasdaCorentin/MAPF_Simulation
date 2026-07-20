@@ -13,10 +13,12 @@ class SimulationController(SimulationDriver):
     """Scripting API over a Simulation: step it, query it, task it.
 
     The single seam between a built scenario and whatever drives it — a
-    pygame window, a terminal, a benchmark script. Frontends talk to
-    this class and read ``StepSnapshot``; they never touch Simulation,
-    the coordinator or the fleet, which is what keeps them ignorant of
-    ``algo`` and of mrta behaviour.
+    pygame window, a terminal, a benchmark script. Frontends talk to this
+    class through ``SimulationDriver`` and read ``StepSnapshot``; they
+    never touch the coordinator or the fleet, which is what keeps them
+    ignorant of ``algo`` and of mrta behaviour. They do reach ``sim`` for
+    hit-testing — a bounded exception declared on the ABC, not a licence
+    to drive the engine directly.
 
     ``step()`` stays a pure "advance by one": it owns no clock and no
     loop, so the caller decides the pacing.
