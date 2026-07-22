@@ -9,8 +9,11 @@
 '  five more classes into the main diagram would have cost the reader
 '  more than it told them.
 '
-'  The single point of contact with the rest of the project is
-'  SimulationDriver, drawn here as an external reference.
+'  report attaches through SimulationDriver and through nothing else: it
+'  implements the interface so a frontend cannot tell a collector from a
+'  controller, and it measures the run from the StepSnapshot that same
+'  interface already returns. No concrete class of client.control is
+'  named here — see the note on RunCollector.
 '
 '  Regenerate:  plantuml diagrammes/report_diagram.puml
 ' =====================================================================
@@ -40,7 +43,13 @@ package "client · control" #EEEEEE {
         + {abstract} snapshot() : StepSnapshot
         + {abstract} send_batch_to(...) : list[Task]
     }
-    class SimulationController <<Facade>> #FFFFFF {
+}
+
+package "client · view" #EEEEEE {
+    class StepSnapshot <<DTO>> #FFFFFF {
+        + step, goals, result
+        + tasks : tuple[TaskView]
+        + completed, failed
     }
 }
 
@@ -50,20 +59,19 @@ package "client · control" #EEEEEE {
 package "report" #F0FFF0 {
 
     class RunCollector <<Decorator>> {
-        - _controller : SimulationDriver
-        - _config     : ScenarioConfig
-        - _label      : str
+        - _driver : SimulationDriver
+        - _config : ScenarioConfig
+        - _label  : str
         --
         .. driving (forwarded) ..
-        + sim / fleet / queue
         + step() : StepSnapshot
         + run(steps: int) : list[StepSnapshot]
         + snapshot() : StepSnapshot
         + send_batch_to(...) : list[Task]
         .. measuring ..
-        - _observe()       : void
-        - _observe_tasks() : void
-        - _observe_agents(): void
+        - _observe(snap: StepSnapshot)       : void
+        - _observe_tasks(snap: StepSnapshot) : void
+        - _observe_agents(snap: StepSnapshot): void
         + record(label: str = None) : RunRecord
     }
     note bottom of RunCollector
@@ -73,22 +81,29 @@ package "report" #F0FFF0 {
       builds one; without the flag the frontend gets the controller itself
       and nothing here runs.
 
-      It observes from the OUTSIDE, through public attributes only
-      (``fleet.tasks``, ``fleet.completed_count``, ``sim.last_intent``).
-      Nothing reaches into FleetManager's internals, which is what lets the
-      metrics be reworked — and they will be — without the engine or the
-      fleet changing.
+      It measures the **frame, not the engine**: everything it records comes
+      from the StepSnapshot that ``step()`` already returns. It holds no
+      Simulation, no FleetManager, no Grid — so the metrics can be reworked,
+      and they will be, without the engine or the fleet changing.
+
+      **Why the interface suffices.** The handles it used to need (``sim``,
+      ``fleet``, ``queue``) left SimulationDriver so that a *frontend* could
+      no longer reach the engine through it. A collector could have kept them
+      by naming the concrete controller — measuring does justify reaching
+      further than drawing does. It does not need to: a snapshot carries the
+      task states, the goals and every agent's position, which is the whole
+      of what is measured here. One seam narrowed and none widened.
 
       Per-tick observation is not an optimisation: FleetManager prunes a
       task on the very tick it ends, so a transition not caught live is
-      gone for good.
+      gone for good — snapshot or not.
     end note
 
     class RunRecord <<value object>> {
         .. identity ..
         + run_id, timestamp, schema_version, git_rev, label
         .. scenario ..
-        + width, height, agents, obstacles, algo, mode
+        + width, height, agents, obstacles, algo, allocator, mode
         + task_source, seed, patience, max_attempts
         .. run ..
         + steps, wall_ms, step_ms_mean
@@ -149,9 +164,9 @@ package "report" #F0FFF0 {
 ' ─────────────────────────────────────────────────────────────────────
 '  Relations
 ' ─────────────────────────────────────────────────────────────────────
-SimulationDriver <|.. SimulationController
 SimulationDriver <|.. RunCollector
-RunCollector "1" o-- "1" SimulationDriver : "_controller (decorates)"
+RunCollector "1" o-- "1" SimulationDriver : "_driver (decorates)"
+RunCollector ..> StepSnapshot : «measures»
 RunCollector ..> RunRecord : «produces»
 
 ResultSink <|.. CsvSink
@@ -178,7 +193,8 @@ legend bottom left
   Kept out of the main class diagram deliberately — this is a debugging
   aid, orthogonal to the simulation. core, mrta, algo and the frontends
   are all unaware it exists, and ``report`` reaches the rest of the
-  project through exactly one seam: SimulationDriver.
+  project through two frozen things only: the SimulationDriver interface
+  it implements, and the StepSnapshot it measures.
 end legend
 
 @enduml

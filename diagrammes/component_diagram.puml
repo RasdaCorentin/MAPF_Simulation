@@ -72,9 +72,13 @@ frontends ..down.> IDriver : drives
 frontends ..down.> ISnap   : reads
 
 ' The same interface, implemented rather than consumed: RunCollector
-' wraps a controller and passes for one. This is what pays for the
+' wraps a driver and passes for one. This is what pays for the
 ' abstraction — a decorator must present the face of what it wraps.
+' It reads the same frames a display does: measuring the run needs no
+' more access than drawing it, which is why no arrow from report reaches
+' past these two interfaces.
 report ..down.> IDriver : "implements\n(decorates)"
+report ..down.> ISnap   : measures
 
 ' control declares that seam and implements it.
 IDriver -down- control

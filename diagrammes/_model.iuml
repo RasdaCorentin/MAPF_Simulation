@@ -12,10 +12,18 @@
 '    algo             -> core, mrta          (concrete implementations)
 '    client.control   -> core, algo, mrta    (composition root: resolves algo + dispatcher)
 '    client.view      -> core, mrta          (VALUE types only: Position, TaskState)
-'    client.frontends -> core, client.view   (read-only, via StepSnapshot)
+'    client.frontends -> client.view, client.control (SimulationDriver ONLY)
 '  mrta NEVER imports algo or client.
 '  client.frontends NEVER imports algo, nor any mrta BEHAVIOUR (FleetManager,
 '  Allocator, TaskSource) — it only ever sees frozen values.
+'
+'  SimulationDriver carries the four verbs and nothing else: no handle on a
+'  live object crosses it, so hit-testing reads StepSnapshot like everything
+'  else does. The engine handles (sim, fleet, queue) stay on the concrete
+'  SimulationController, which nothing outside client.control names.
+'  A frontend still uses core VALUE types — it builds a Position from a click
+'  to call send_batch_to — exactly as client.view uses TaskState. Depending on
+'  a value is not depending on behaviour.
 '
 '  LAYOUT — two rules, both about where the reader's eye should land.
 '
@@ -93,6 +101,23 @@ package "core" #EAF4FF {
             --
             + move_to(new_position: Position) : void
         }
+
+        class Zone {
+            + name  : str
+            + cells : tuple[Position]
+            --
+            + contains(position: Position) : bool
+        }
+        !if $ANNOTATED == 1
+        note bottom of Zone
+          **A named region — "send the fleet to the loading station"**
+          A group of cells the operator can address by name instead of
+          by coordinates: loading station, working space, empty-rack
+          area. Like any WorldEntity it can spawn late and go inactive;
+          unlike the others it covers several cells, so the grid knows
+          it at each of them rather than at a single corner.
+        end note
+        !endif
     }
 
     package "environment" {
@@ -107,8 +132,6 @@ package "core" #EAF4FF {
             + place(entity: WorldEntity) : void
             + remove(entity: WorldEntity) : void
             + get_agent_at(position: Position) : Agent | None
-            + get_entities_at(position: Position, kind) : list[WorldEntity]
-            + get_all(kind) : list[WorldEntity]
         }
     }
 
@@ -175,7 +198,6 @@ package "core" #EAF4FF {
             + add_agent(agent: Agent) : void
             + add_object(entity: WorldEntity) : void
             + step() : PlanResult
-            - _validate(result: PlanResult) : void
         }
         !if $ANNOTATED == 1
         note top of Simulation
@@ -269,8 +291,11 @@ package "mrta" #FFF0F5 {
     note right of Allocator
       **Who takes which job**
       The matching strategy, isolated so variants can be compared:
-      pending tasks and idle agents in, task -> agent pairs out.
-      RandomAllocator is the baseline; a distance-greedy one is next.
+      pending tasks and idle robots in, task -> robot pairs out.
+        EasiestAllocator — the nearest free robot wins (default)
+        RandomAllocator  — no notion of distance, the baseline
+      Neither one decides *whether* a robot is allowed to take a job:
+      FleetManager has already filtered that before it calls them.
     end note
     !endif
 
@@ -285,7 +310,6 @@ package "mrta" #FFF0F5 {
         --
         + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
         + set_priority(task_id: int, priority: float) : void
-        - _build_intent()   : DispatchIntent
     }
     !if $ANNOTATED == 1
     note bottom of FleetManager
@@ -327,8 +351,6 @@ package "algo" #F0FFF0 {
             --
             + reserve(agent: Agent, pos: Position) : void
             + release(agent: Agent) : void
-            + get_reserving_agent(pos: Position) : Agent | None
-            + get_reservation(agent: Agent) : Position | None
         }
 
         class PriorityManager {
@@ -344,15 +366,8 @@ package "algo" #F0FFF0 {
             + goals         : dict[Agent, Position]
             - _reservations : ReservationTable
             - _priorities   : PriorityManager
-            - _processed    : set[Agent]
-            - _inheritance  : list[tuple[Agent, Agent]]
-            - _last_intent  : dict[int, tuple]
-            - _demoted      : dict[Agent, float]
             --
             + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
-            - _apply_intent(agents: list[Agent], intent: DispatchIntent) : void
-            - _pibt(agent: Agent, parent: Agent | None, grid: Grid) : bool
-            - _h(pos: Position, agent: Agent, grid: Grid) : int
         }
         !if $ANNOTATED == 1
         note right of PIBTCoordinator
@@ -378,11 +393,9 @@ package "algo" #F0FFF0 {
             + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
         }
 
-        class KDTreeGreedyAllocator {
-            - _tree : KDTree
+        class EasiestAllocator {
             --
             + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
-            - _nearest_free(task: Task, free: list[Agent]) : Agent
         }
     }
 }
@@ -399,6 +412,7 @@ package "client · control" #FFF5EA {
         + agents       : int = 20
         + obstacles    : int = 0
         + algo         : str = "pibt"
+        + allocator    : str = "easiest"
         + mode         : str = "mrta"
         + seed         : int = 0
         + tasks        : str = "none"
@@ -406,6 +420,7 @@ package "client · control" #FFF5EA {
         + task_count   : int = 2
         + patience     : int = 12
         + max_attempts : int = 3
+        + zones        : tuple[Zone] = ()
     }
 
     class factory $st("Factory") {
@@ -413,28 +428,20 @@ package "client · control" #FFF5EA {
     }
 
     abstract class SimulationDriver $st("Strategy") {
-        + sim   : Simulation
-        + fleet : FleetManager | None
-        + queue : QueueTaskSource | None
-        --
         + {abstract} step() : StepSnapshot
         + {abstract} run(steps: int) : list[StepSnapshot]
         + {abstract} snapshot() : StepSnapshot
-        + {abstract} send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
+        + {abstract} send_batch_to(target: Position, agent_ids, priority: float, within) : list[Task]
     }
     !if $ANNOTATED == 1
     note left of SimulationDriver
-      **What a frontend is allowed to drive**
-      Normally a SimulationController. With ``main.py --log`` it is a
-      RunCollector wrapping one, measuring every tick on its way
-      through — and a frontend must not be able to tell which it got.
-      Declaring the seam is what makes that substitution checked: a
-      decorator that forgot a method used to fail at the first click,
-      now it fails at instantiation.
-      ``sim`` is on the interface because PygameFrontend really does
-      read ``sim.grid`` to hit-test a click. That is wider than we
-      would like; the interface records the seam that exists, and is
-      where narrowing it would be enforced.
+      **The whole contract between the display and the engine**
+      Four verbs, and no handle on anything live: advance a step, run
+      several, ask for the current picture, send a batch somewhere.
+      A display can therefore be handed the real controller or a
+      measuring wrapper (``main.py --log``) without being able to tell
+      the difference — and cannot reach past this line to steer the
+      simulation itself.
     end note
     !endif
 
@@ -445,7 +452,7 @@ package "client · control" #FFF5EA {
         --
         + step() : StepSnapshot
         + run(steps: int) : list[StepSnapshot]
-        + send_batch_to(target: Position, agent_ids, priority: float) : list[Task]
+        + send_batch_to(target: Position, agent_ids, priority: float, within) : list[Task]
         + snapshot() : StepSnapshot
     }
     !if $ANNOTATED == 1
@@ -459,6 +466,9 @@ package "client · control" #FFF5EA {
         click -> queue -> FleetManager -> DispatchIntent -> Coordinator
       and inherits collision avoidance for free. Nothing in the project
       bypasses the planner.
+      ``within`` says where those jobs may land, so "send them to the
+      loading station" means the station itself and not the aisle next
+      to it once the station is full.
       With the factory beside it, this is the composition root: the
       only place that names a concrete algorithm or allocator, which is
       what lets everything downstream stay ignorant of both.
@@ -471,12 +481,13 @@ package "client · control" #FFF5EA {
 ' =====================================================================
 package "client · view" #FFF5EA {
     class TaskView $st("value object") {
-        + task_id     : int
-        + target      : Position
-        + state       : TaskState
-        + priority    : float
-        + assignee_id : int | None
-        + attempts    : int
+        + task_id      : int
+        + target       : Position
+        + state        : TaskState
+        + priority     : float
+        + assignee_id  : int | None
+        + attempts     : int
+        + created_step : int
         --
         + {static} of(task: Task) : TaskView
     }
@@ -494,17 +505,37 @@ package "client · view" #FFF5EA {
     end note
     !endif
 
+    class ZoneView $st("value object") {
+        + name  : str
+        + cells : tuple[Position]
+        --
+        + {static} of(zone: Zone) : ZoneView
+    }
+
     class StepSnapshot $st("DTO") {
-        + step      : int
-        + result    : PlanResult
-        + goals     : dict[int, Position]
-        + objects   : tuple
-        + tasks     : tuple[TaskView]
-        + completed : int
-        + failed    : int
+        + step         : int
+        + result       : PlanResult
+        + goals        : dict[int, Position]
+        + objects      : tuple
+        + tasks        : tuple[TaskView]
+        + zones        : tuple[ZoneView]
+        + width        : int
+        + height       : int
+        + accepts_tasks : bool
+        + completed    : int
+        + failed       : int
         --
         + counts() : dict[str, int]
     }
+    !if $ANNOTATED == 1
+    note bottom of StepSnapshot
+      **One frame of the run, frozen**
+      Everything the display needs to draw a step and to resolve a
+      click on it — board size, robots, jobs, zones. It is a copy, so
+      it stays readable long after the engine has moved on, which is
+      what lets the window replay the past while the run continues.
+    end note
+    !endif
 }
 
 ' =====================================================================
@@ -512,47 +543,49 @@ package "client · view" #FFF5EA {
 ' =====================================================================
 package "client · frontends" #FFF5EA {
     abstract class Frontend $st("Strategy") {
-        + controller : SimulationController
+        + controller : SimulationDriver
         --
         + {abstract} run(steps: int) : void
     }
     !if $ANNOTATED == 1
     note top of Frontend
-      **Presentation — knows neither algo nor mrta**
-      A frontend reads StepSnapshot and calls the controller; it never
-      touches the grid, the fleet or the algorithm. Adding one (web,
-      ROS bridge, ...) changes nothing in core, algo or mrta.
-      PygameFrontend is the interactive window: click or rubber-band to
-      select robots, click a cell to send them there. It also owns the
-      clock — the engine's step() is a pure "advance by one".
+      **Presentation — it displays and it asks, nothing more**
+      A frontend reads snapshots and calls the four verbs. It knows no
+      algorithm, no allocation, and holds nothing live — not the grid,
+      not the fleet — so adding one (web, ROS bridge, ...) changes
+      nothing anywhere else.
+      PygameFrontend is the interactive window: select robots, click a
+      cell or a zone button to send them there. It also owns the clock
+      — the engine only ever advances one step when asked.
     end note
     !endif
 
     class PygameFrontend {
         + tick_ms   : int
-        + cell      : int
         + selection : set[int]
         + history   : list[StepSnapshot]
-        + cursor    : int
         + playing   : bool
         --
         + run(steps: int) : void
-        - _handle(event, grid_w: int, panel: Sidebar)
-        - _advance() : void
-        - _draw_board(screen, snap: StepSnapshot, fonts) : void
     }
 
     class Sidebar {
-        + height  : int
         + buttons : dict[str, Rect]
         --
-        + draw(screen, origin_x, snap, selection, playing, replaying, fonts) : void
+        + draw(screen, origin_x, snap, selection, ...) : void
         + hit(position, origin_x) : str | None
     }
+    !if $ANNOTATED == 1
+    note bottom of Sidebar
+      **Buttons come from the run, not from the code**
+      Besides the transport controls, the panel draws one button per
+      zone it finds in the snapshot. Declaring a fourth zone gives a
+      fourth button with nothing to change here.
+    end note
+    !endif
 
     class HeadlessFrontend {
         + run(steps: int) : void
-        - _print(snap: StepSnapshot, total: int) : void
     }
 }
 
@@ -573,7 +606,11 @@ package "client · frontends" #FFF5EA {
 
 ' ── Inheritance & entities ────────────────────────────────────────
 WorldEntity <|-- Agent
+WorldEntity <|-- Zone
 WorldEntity "1" *-- "1" Position : position
+' Filled diamond: Position is immutable, so sharing an instance is
+' meaningless and ownership is moot — the same rule as above.
+Zone "1" *-- "1..*" Position : cells
 
 ' ── Grid ──────────────────────────────────────────────────────────
 ' Aggregation, not composition: Grid is a spatial INDEX, not a store.
@@ -615,8 +652,10 @@ SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
 SimulationController "1" o-- "0..1" QueueTaskSource : queue (MRTA mode)
 SimulationController ..> StepSnapshot : «builds»
 SimulationController ..> TaskView    : «projects Task ->»
+SimulationController ..> ZoneView    : «projects Zone ->»
 StepSnapshot "1" *-- "1" PlanResult  : result
 StepSnapshot "1" *-- "0..*" TaskView : tasks
+StepSnapshot "1" *-- "0..*" ZoneView : zones
 
 ' ── Client PART 2: front-ends, decoupled from algo & mrta ─────────
 ' The frontend depends on the INTERFACE, not on the controller class:
@@ -632,7 +671,7 @@ PygameFrontend "1" *-- "0..*" StepSnapshot : history (replay)
 Task "1" *-- "1" TaskState : state
 
 Allocator <|.. RandomAllocator
-Allocator <|.. KDTreeGreedyAllocator
+Allocator <|.. EasiestAllocator
 
 TaskSource <|.. QueueTaskSource
 TaskSource <|.. RandomTaskSource
