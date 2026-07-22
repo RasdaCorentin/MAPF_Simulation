@@ -8,8 +8,15 @@
   file name and new file must follow it. Read it before your first commit.
 - **`README.md` / `GUIDE.md`** — human-facing overview and guided tour.
 
-The reference for architecture is `diagrammes/_model.iuml` (the class diagram): when this file,
-the code and the diagram disagree, **the diagram arbitrates** — see *Rules and invariants*.
+The reference for architecture is the class diagram: when this file, the code and the diagram
+disagree, **the diagram arbitrates** — see *Rules and invariants*. It and the two object diagrams
+are imported below so they are always in context; read them, do not re-derive them.
+
+@diagrammes/_model.iuml
+
+@diagrammes/Object_Diagram/object_diag_mrta.puml
+
+@diagrammes/Object_Diagram/object_diag_static.puml
 
 ---
 
@@ -771,24 +778,27 @@ break it. When in doubt, the class diagram arbitrates (see the diagram rules bel
 - **Visual/rendering changes -> `client/frontends/` only.**
 - **Never call `SimulationController.step()` in a loop with a sleep** — a frontend owns the
   clock, and any real-time loop needs the `MAX_STEPS_PER_FRAME` clamp.
-- **Keep the diagrams in sync.** Four sources, each with its own scope:
+- **Keep the diagrams in sync.** Five sources, each with its own scope:
 
   | Source | Scope | Regenerate with |
   |---|---|---|
-  | `_model.iuml` | the architecture (via `diagrams.puml`) | `plantuml diagrammes/diagrams.puml` |
-  | `sequence_tick.puml` | one tick, call by call | `plantuml diagrammes/sequence_tick.puml` |
-  | `report_diagram.puml` | `report/` alone | `plantuml diagrammes/report_diagram.puml` |
-  | `object_diag.puml` | instances after tick 1 (French) | `plantuml diagrammes/object_diag.puml` |
+  | `diagrammes/_model.iuml` | the architecture (via `diagrams.puml`) | `plantuml diagrammes/diagrams.puml` |
+  | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
+  | `diagrammes/report_diagram.puml` | `report/` alone | `plantuml diagrammes/report_diagram.puml` |
+  | `diagrammes/Object_Diagram/object_diag_mrta.puml` | instances after one MRTA tick (French) | `plantuml diagrammes/Object_Diagram/object_diag_mrta.puml` |
+  | `diagrammes/Object_Diagram/object_diag_static.puml` | same, static mode (French) | `plantuml diagrammes/Object_Diagram/object_diag_static.puml` |
 
   `diagrams.puml` renders `_model.iuml` twice — simple and annotated — driven by the `$ANNOTATED`
   preprocessor flag, so the two class diagrams cannot drift apart. Never edit the generated PNGs.
+  There is no sequence diagram: `sequence_tick.puml` was dropped — the tick order it showed is
+  stated on `Simulation` in the class diagram and under *`step()` logic* below.
 - **The class diagram is the reference.** When code and `_model.iuml` disagree, the default is to
   change the *code* so the diagram becomes true; amend the model only when it is genuinely wrong.
-  The sequence and object diagrams follow the class diagram, never the reverse.
+  The component and object diagrams follow the class diagram, never the reverse.
 - **Diamonds follow one rule** (stated at the top of `_model.iuml`): filled for an immutable value
   or a mutable object with a single exclusive owner, hollow for a shared mutable instance.
-- **`report/` stays out of the main diagram** — it has its own, and its only seam into the rest of
-  the project is `SimulationDriver`.
+- **`report/` stays out of the main diagram** — it has its own, and its only seams into the rest
+  of the project are `SimulationDriver` and the `StepSnapshot` it measures.
 
 ---
 
@@ -812,3 +822,79 @@ break it. When in doubt, the class diagram arbitrates (see the diagram rules bel
 | `-inf` demotion is reversible | "at its goal" is a *state*; `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding |
 | Snapshots are projections | `TaskView`/`StepSnapshot` copy values and key on `agent_id`; a snapshot must read identically N steps later |
 | No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
+
+---
+
+## Parked for the split diagrams — **à retirer de AGENT.md une fois le diagramme créé**
+
+> Everything below was deliberately **removed from the class diagram** to keep it readable for
+> someone who only knows the project through the three component-level groups
+> (**Frontend / Engine / Algo**). It is true and it matters, but it is either an implementation
+> detail or it belongs in a diagram that does not exist yet. Each entry names where it should
+> end up. **Delete the entry from this file the moment its diagram carries it.**
+
+### Domain vocabulary — settles a naming mistake
+
+A **rack** is the **crate a robot loads or does not load onto itself** — a payload, *not* a
+region of the map. The three operational zones are therefore the *loading station*, the
+*working space*, and the *empty-rack area* (where empty crates are parked): the last one is
+named after what sits in it, not after a kind of zone.
+
+Nothing in the code models a rack yet. A `Rack` entity carried by an `Agent` (load / unload,
+`Agent.carrying: Rack | None`) is the obvious next step and would change the task lifecycle —
+a job becomes "fetch a rack here, drop it there" rather than "stand on this cell". **Not in
+scope now**; recorded so the vocabulary in the diagram does not have to be un-learned later.
+
+### → Engine diagram
+
+- **A `Zone` is indexed by `Grid` at *each* of its cells**, not at a single anchor, so that
+  asking "what is here?" anywhere inside it finds it. Consequence callers must handle:
+  `get_all()` returns that zone **once per cell** — de-duplicate by `entity_id`.
+- **`Zone` deliberately does not use `WorldEntity.scale`.** `scale` is reserved and
+  unimplemented; making it work would mean an agent *footprint*, forcing `Grid`, `is_blocked`,
+  `Simulation._validate` and PIBT's candidate generation to change together. `Zone.cells` is an
+  explicit list and touches none of that.
+- `Simulation._validate()` skips the off-grid and blocked-cell checks for agents that do not
+  move, so an obstacle spawning via `appear_at` onto an occupied cell is not reported as a
+  planning error.
+- `Grid.get_entities_at` / `get_all` and `Simulation._validate` were dropped from the diagram
+  as secondary; they remain part of the API.
+
+### → Frontend diagram
+
+- **Hit-test the present, draw the cursor.** History is replayable, so the frame on screen may
+  be many steps old. A click must be resolved against `history[-1]`; resolving it against
+  `history[cursor]` would order the robot that *used to* be in that cell. Geometry
+  (`width`/`height`) may come from the cursor — it does not change.
+- `result.positions` is keyed by `agent_id` and filled for **every** agent by both
+  `PIBTCoordinator` and `RandomWalkCoordinator`. That is what makes reverse-lookup
+  ("which robot is in this cell?") from a snapshot complete rather than partial — the whole
+  basis for hit-testing without the engine.
+- Sidebar buttons are keyed `zone:<name>` and laid out from `snap.zones`, so a new zone in the
+  factory yields a new button with no change in the sidebar.
+- `MAX_STEPS_PER_FRAME` is not optional: without the clamp a slow tick lets the accumulator
+  outrun the frame and the window freezes (spiral of death).
+
+### → Component diagram / architecture note
+
+- **Why `sim`, `fleet` and `queue` left `SimulationDriver`.** They existed because
+  `PygameFrontend` read `sim.grid` to hit-test. `queue` in particular handed a frontend a live
+  `QueueTaskSource` — mrta *behaviour*, which the layering forbids. They now live on the
+  concrete `SimulationController` only.
+- **Nothing was widened to pay for it.** `RunCollector` (`report/`) could have named the concrete
+  `SimulationController` — measuring does justify reaching further than drawing does. It does not
+  need to: a `StepSnapshot` carries the task states, the goals and every agent's position, which
+  is the whole of what it measures. It wraps the ABC, holds no live object, and still *implements*
+  `SimulationDriver`, so the substitution a frontend depends on stays checked.
+- Neither allocator filters eligibility: `FleetManager._by_eligibility()` groups pending tasks
+  by eligibility class and calls the allocator once per class, restricted classes first.
+- `send_batch_to(..., within=)` bounds *where jobs may land*; the BFS still crosses the whole
+  map to follow connectivity, only its **collection** is restricted.
+
+### → Still to do on the diagrams themselves
+
+- **Split the class diagram in three** — *Frontend*, *Engine*, *Algo* — matching the component
+  view. The single global rendering is too dense to be a first read. The dense version is
+  archived as `diagrammes/_model_full.iuml` (+ `simulation_class_diagram_full_*.png`) and
+  should be kept as the exhaustive reference, not as the one shown first.
+- `Object_Diagram/object_diag_mrta.puml` does not show a `Zone` instance yet.
