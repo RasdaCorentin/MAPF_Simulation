@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from core import Position, PlanResult
 
 from .task_view import TaskView
+from .zone_view import ZoneView
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class StepSnapshot:
     goals:    dict[int, Position] = field(default_factory=dict)
     objects:  tuple = ()                                  # ((Position, kind), ...)
     tasks:    tuple[TaskView, ...] = ()
+    zones:    tuple[ZoneView, ...] = ()    # named regions, addressable by name
     width:    int = 0
     height:   int = 0
     accepts_tasks: bool = False                           # MRTA mode: a queue is attached

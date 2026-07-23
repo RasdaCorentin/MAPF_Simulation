@@ -6,6 +6,7 @@ TaskSource) and never on ``algo``.
 """
 
 from .task_view import TaskView
+from .zone_view import ZoneView
 from .snapshot import StepSnapshot
 
-__all__ = ["TaskView", "StepSnapshot"]
+__all__ = ["TaskView", "ZoneView", "StepSnapshot"]

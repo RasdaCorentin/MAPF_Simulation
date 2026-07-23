@@ -1,10 +1,10 @@
 from collections import deque
 from typing import Iterable, Optional
 
-from core import Agent, Position, Simulation, PlanResult
+from core import Agent, Position, Simulation, PlanResult, Zone
 from mrta import FleetManager, QueueTaskSource, Task
 
-from client.view import StepSnapshot, TaskView
+from client.view import StepSnapshot, TaskView, ZoneView
 
 from .driver import SimulationDriver
 
@@ -190,6 +190,7 @@ class SimulationController(SimulationDriver):
             goals=dict(self.sim.last_intent.goals),
             objects=self._objects(),
             tasks=tasks,
+            zones=self._zones(),
             width=self.sim.grid.width,
             height=self.sim.grid.height,
             accepts_tasks=self._queue is not None,
@@ -200,9 +201,22 @@ class SimulationController(SimulationDriver):
     def _objects(self) -> tuple:
         """Input: none.
         Output: ((Position, kind), ...) for the active static entities.
+
+        Zones are excluded: they are ground labels, not obstacles, and
+        this tuple is what the board draws as walls. They travel in
+        ``StepSnapshot.zones`` instead, where their name and full extent
+        survive — neither of which fits a (position, kind) pair.
         """
         return tuple(
             (e.position, "obstacle")
             for e in self.sim.grid.get_all()
-            if not isinstance(e, Agent) and e.active
+            if not isinstance(e, (Agent, Zone)) and e.active
+        )
+
+    def _zones(self) -> tuple:
+        """Input: none.
+        Output: a frozen ZoneView per active zone on the grid.
+        """
+        return tuple(
+            ZoneView.of(z) for z in self.sim.grid.get_all(Zone) if z.active
         )
