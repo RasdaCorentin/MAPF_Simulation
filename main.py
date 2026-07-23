@@ -17,6 +17,7 @@ client.control.build()'s job, and driving it is the frontend's.
 """
 
 import argparse
+from pathlib import Path
 
 from client.control import ScenarioConfig, build, default_zones
 from report import CsvSink, RunCollector
@@ -104,7 +105,16 @@ def main() -> None:
             record = collector.record()
             try:
                 CsvSink(args.log).append(record)
-                print(f"\nrun {record.run_id} ({record.steps} steps) -> {args.log}")
+                # Alongside the summary row: a per-task event log and a
+                # per-step trace, one debugging aid a RunRecord's aggregate
+                # counts cannot be — which task failed, which agent held it.
+                log_path = Path(args.log)
+                CsvSink(log_path.with_name(log_path.stem + ".events.csv")).append_all(
+                    collector.events())
+                CsvSink(log_path.with_name(log_path.stem + ".trace.csv")).append_all(
+                    collector.trace())
+                print(f"\nrun {record.run_id} ({record.steps} steps) -> "
+                      f"{args.log} (+.events.csv, +.trace.csv)")
             except Exception as exc:
                 # Never let a logging failure replace the reason the run ended
                 # — if the run itself raised, that traceback is the useful one.
