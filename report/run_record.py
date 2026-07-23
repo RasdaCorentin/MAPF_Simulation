@@ -5,7 +5,7 @@ from typing import Optional, Union, get_args, get_origin, get_type_hints
 # Bump whenever a field is added, removed or given a new meaning. It is stored
 # in every row, so a dataset assembled across code changes stays interpretable
 # instead of silently mixing two definitions of the same column.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -35,10 +35,12 @@ class RunRecord:
     obstacles:    int
     algo:         str
     mode:         str
+    allocator:    str
     task_source:  str
     seed:         int
     patience:     int
     max_attempts: int
+    zones:        int          # how many named regions were placed
 
     # ── run ──────────────────────────────────────────────────────────────────
     steps:        int            # steps actually executed

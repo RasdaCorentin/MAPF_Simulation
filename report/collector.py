@@ -239,10 +239,12 @@ class RunCollector(SimulationDriver):
             obstacles=config.obstacles,
             algo=config.algo,
             mode=config.mode,
+            allocator=config.allocator,
             task_source=config.tasks,
             seed=config.seed,
             patience=config.patience,
             max_attempts=config.max_attempts,
+            zones=len(config.zones),
 
             steps=self._steps,
             wall_ms=round(self._wall_ms, 3),
