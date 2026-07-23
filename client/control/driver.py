@@ -58,8 +58,10 @@ class SimulationDriver(ABC):
         target: Position,
         agent_ids: Optional[Iterable[int]] = None,
         priority: float = 5.0,
+        within: Optional[frozenset] = None,
     ) -> list[Task]:
-        """Input: a destination, the agents allowed to serve it, a priority.
+        """Input: a destination, the agents allowed to serve it, a priority,
+        and optionally the cells the jobs may land on.
         Output: the tasks minted and queued.
         """
         ...

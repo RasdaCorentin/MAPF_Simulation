@@ -82,9 +82,11 @@ class SimulationController(SimulationDriver):
         target: Position,
         agent_ids: Optional[Iterable[int]] = None,
         priority: float = 5.0,
+        within: Optional[frozenset] = None,
     ) -> list[Task]:
         """Input: a destination, the agents to send there (all free
-        agents if None), and the tasks' priority.
+        agents if None), the tasks' priority, and optionally the cells
+        the jobs are allowed to land on.
         Output: the tasks queued, one per agent, on ``target`` and the
         free cells around it.
 
@@ -93,6 +95,10 @@ class SimulationController(SimulationDriver):
         Nothing bypasses the planner, so the batch inherits collision
         avoidance for free — which is why there is no manual per-cell
         driving anywhere in this API.
+
+        ``within`` bounds *where the jobs may land*, not where the search
+        may go: "send them to the loading station" must mean the station
+        itself, and stop rather than spill into the aisle once it is full.
         """
         if self.queue is None:
             raise RuntimeError("send_batch_to requires MRTA mode (no task queue attached).")
@@ -101,7 +107,7 @@ class SimulationController(SimulationDriver):
         if not ids:
             return []
 
-        cells = self._free_cells_around(target, len(ids))
+        cells = self._free_cells_around(target, len(ids), within)
         eligible = frozenset(ids)
         tasks = [
             # task_id is stamped by FleetManager at intake.
@@ -117,13 +123,22 @@ class SimulationController(SimulationDriver):
         self.queue.push_many(tasks)
         return tasks
 
-    def _free_cells_around(self, target: Position, count: int) -> list[Position]:
-        """Input: a centre and how many cells are wanted.
+    def _free_cells_around(
+        self,
+        target: Position,
+        count: int,
+        within: Optional[frozenset] = None,
+    ) -> list[Position]:
+        """Input: a centre, how many cells are wanted, and optionally the
+        cells that may be collected.
         Output: up to ``count`` reachable cells, ``target`` first, then
         outwards in growing rings.
 
         A BFS rather than a radius scan: it follows connectivity, so it
         never hands back a cell that looks close but sits behind a wall.
+        ``within`` filters what is *collected*, never what is *traversed*:
+        a zone reached through a corridor outside it is still one zone,
+        and bounding the walk instead would make it two.
         """
         grid = self.sim.grid
         found: list[Position] = []
@@ -132,7 +147,11 @@ class SimulationController(SimulationDriver):
 
         while queue and len(found) < count:
             current = queue.popleft()
-            if grid.is_valid(current) and not self._is_obstructed(current):
+            if (
+                grid.is_valid(current)
+                and not self._is_obstructed(current)
+                and (within is None or current in within)
+            ):
                 found.append(current)
             for step in (Position(0, -1), Position(0, 1), Position(-1, 0), Position(1, 0)):
                 nxt = current + step

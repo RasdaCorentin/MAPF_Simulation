@@ -83,11 +83,12 @@ class RunCollector(SimulationDriver):
         """Input: none. Output: the wrapped driver's current snapshot."""
         return self._driver.snapshot()
 
-    def send_batch_to(self, target, agent_ids=None, priority: float = 5.0):
-        """Input: a destination, the eligible agents, a priority.
+    def send_batch_to(self, target, agent_ids=None, priority: float = 5.0, within=None):
+        """Input: a destination, the eligible agents, a priority, and the
+        cells the jobs may land on.
         Output: the tasks minted and queued by the wrapped driver.
         """
-        return self._driver.send_batch_to(target, agent_ids, priority)
+        return self._driver.send_batch_to(target, agent_ids, priority, within)
 
     def step(self):
         """Input: none.
