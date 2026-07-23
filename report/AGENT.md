@@ -4,14 +4,15 @@
 > invariants and the diagrams — lives in the root [`AGENT.md`](../AGENT.md) and is **not**
 > repeated here. Read it first.
 
-`report/` turns a run into one row. It is **opt-in**: without `main.py --log` no collector is
-built at all and the frontend drives the `SimulationController` directly. Its only seams into
-the rest of the project are `SimulationDriver` and the `StepSnapshot` it measures — it stays
-out of the main class diagram and has [its own](../diagrammes/report_diagram.puml).
+`report/` turns a run into a summary row **and**, when the caller asks for it, into the detail
+that row cannot carry. It is **opt-in**: without `main.py --log` no collector is built at all and
+the frontend drives the `SimulationController` directly. Its only seams into the rest of the
+project are `SimulationDriver` and the `StepSnapshot` it measures — it stays out of the main
+class diagram and has [its own](../diagrammes/report_diagram.puml).
 
 ```python
 @dataclass(frozen=True)
-class RunRecord:                    # report/run_record.py — THE schema
+class RunRecord:                    # report/run_record.py — THE schema, one row per run
     run_id, timestamp, schema_version, git_rev, label      # identity
     width, height, agents, obstacles, algo, mode, task_source, seed,
     patience, max_attempts                                  # scenario
@@ -23,9 +24,25 @@ class RunRecord:                    # report/run_record.py — THE schema
     busy_frac, idle_max
     columns() -> list[str] ; as_row() -> dict ; sql_create_table(table) -> str
 
+@dataclass(frozen=True)
+class TaskEvent:                    # report/task_event.py — one row per lifecycle transition
+    run_id, step, task_id, event, agent_id, x, y, target_x, target_y, attempts, reason
+    # event: created | assigned | released | done | failed
+    # reason (failed only): stalled_watchdog | unreachable_intake
+    columns() -> list[str] ; as_row() -> dict
+
+@dataclass(frozen=True)
+class AgentTrace:                   # report/agent_trace.py — one row per agent per step
+    run_id, step, agent_id, x, y, goal_x, goal_y, task_id, task_state
+    columns() -> list[str] ; as_row() -> dict
+
+class Record(Protocol):             # report/record.py — what a sink needs, structurally
+    columns() -> list[str] ; as_row() -> dict
+
 class ResultSink(ABC):              # report/sink.py
-    append(record: RunRecord)
-class CsvSink(ResultSink)           # appends; header written once
+    append(record: Record)
+    append_all(records: Iterable[Record])   # default loops append(); CsvSink opens once
+class CsvSink(ResultSink)           # appends; header written once, any Record shape
 class NullSink(ResultSink)          # discards
 
 class RunCollector(SimulationDriver):   # report/collector.py
@@ -33,7 +50,24 @@ class RunCollector(SimulationDriver):   # report/collector.py
     step() / run(steps)             # forwards to the wrapped driver, measuring
     snapshot() / send_batch_to()    # forwarded verbatim
     record(label=None) -> RunRecord
+    events() -> list[TaskEvent]     # every task transition observed so far
+    trace() -> list[AgentTrace]     # every agent, every step observed so far
 ```
+
+- **Three renderings of the same observation, not three measurements.** `_observe_tasks` and
+  `_observe_agents` already walk every field a `TaskEvent`/`AgentTrace` row needs in order to
+  update the aggregate counters `record()` reads later; emitting the row is a few extra lines at
+  the point of detection, not a second pass over the frame. `RunRecord` answers "how did the run
+  go"; `TaskEvent` answers "what happened to task 7, and why"; `AgentTrace` answers "where was
+  every agent, tick by tick" for the rare case even that is not enough. `main.py --log FILE.csv`
+  writes all three: the summary at `FILE.csv`, one row per task transition at `FILE.events.csv`,
+  one row per agent-tick at `FILE.trace.csv` — the last two only if there is anything to write
+  (a static-mode run has no tasks, so no `.events.csv` is created, but agents still move, so
+  `.trace.csv` still is).
+- **`run_id` is generated at `RunCollector.__init__`, not at `record()`.** All three outputs must
+  carry the same id so a `TaskEvent`/`AgentTrace` row can be joined back to the `RunRecord` that
+  summarises it — generating it lazily at `record()` would let events observed earlier in the run
+  belong to no id yet.
 
 - **Every field is a plain scalar.** A CSV header and a SQL table are two renderings of the same
   record; anything nested would serialise to CSV and then have nowhere to go in a relational
