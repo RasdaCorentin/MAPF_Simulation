@@ -10,7 +10,9 @@ from mrta import TaskState
 
 from client.control import SimulationDriver
 
+from .agent_trace import AgentTrace
 from .run_record import RunRecord, SCHEMA_VERSION
+from .task_event import TaskEvent
 
 
 class RunCollector(SimulationDriver):
@@ -40,6 +42,11 @@ class RunCollector(SimulationDriver):
         self._config = config
         self._label = label
 
+        # Identity is fixed at construction, not at record(): events() and
+        # trace() must carry the same run_id as the RunRecord produced at
+        # the end, so the three can be joined back together.
+        self._run_id = uuid.uuid4().hex[:12]
+
         # The starting frame: it fixes the fleet size and stands in for the
         # last observation until the first step produces one.
         self._last_snap = driver.snapshot()
@@ -53,6 +60,8 @@ class RunCollector(SimulationDriver):
         # ends, so assignment has to be caught live, tick by tick.
         self._assigned_at: dict[int, int] = {}
         self._assigned_from: dict[int, Position] = {}
+        self._assignee_of: dict[int, int] = {}
+        self._attempts_of: dict[int, int] = {}
         self._states: dict[int, TaskState] = {}
         self._targets: dict[int, Position] = {}
         self._waits: list[int] = []
@@ -63,6 +72,8 @@ class RunCollector(SimulationDriver):
         self._failed_stalled = 0
         self._failed_unreachable = 0
         self._last_failed_count = 0
+        self._events: list[TaskEvent] = []
+        self._trace: list[AgentTrace] = []
 
         # Drift observation: where an agent parked when it lost its goal, and
         # how far traffic has pushed it since.
@@ -131,19 +142,30 @@ class RunCollector(SimulationDriver):
             live[task.task_id] = task.state
             self._targets.setdefault(task.task_id, task.target)
             self._attempts_max = max(self._attempts_max, task.attempts)
+            self._attempts_of[task.task_id] = task.attempts
 
             previous = self._states.get(task.task_id)
+            if previous is None:
+                self._events.append(self._event(snap, task, "created"))
+
             if task.state is TaskState.ASSIGNED and task.task_id not in self._assigned_at:
                 self._assigned_at[task.task_id] = step
                 self._assigned_from[task.task_id] = snap.result.positions[task.assignee_id]
                 self._waits.append(step - task.created_step)
+                self._assignee_of[task.task_id] = task.assignee_id
+                self._events.append(self._event(snap, task, "assigned", agent_id=task.assignee_id))
             elif previous is TaskState.ASSIGNED and task.state is not TaskState.ASSIGNED:
                 # Released by the watchdog: it may retry or give up here.
                 self._reassignments += 1
                 self._assigned_at.pop(task.task_id, None)
+                holder = self._assignee_of.pop(task.task_id, None)
                 if task.state is TaskState.FAILED:
                     self._failed_stalled += 1
                     newly_failed += 1
+                    self._events.append(self._event(
+                        snap, task, "failed", agent_id=holder, reason="stalled_watchdog"))
+                else:
+                    self._events.append(self._event(snap, task, "released", agent_id=holder))
 
         for task_id, previous in self._states.items():
             if task_id in live:
@@ -151,6 +173,8 @@ class RunCollector(SimulationDriver):
             # Gone from the live list: pruned this tick.
             start = self._assigned_at.pop(task_id, None)
             origin = self._assigned_from.pop(task_id, None)
+            holder = self._assignee_of.pop(task_id, None)
+            attempts = self._attempts_of.pop(task_id, 0)
             if previous is TaskState.FAILED:
                 newly_failed += 1
             elif start is not None:
@@ -161,14 +185,57 @@ class RunCollector(SimulationDriver):
                     optimal = self._manhattan(origin, target)
                     if optimal:
                         self._detours.append(service / optimal)
+                self._events.append(self._done_event(snap, task_id, holder, target, attempts))
 
         # Whatever failed without a live task to explain it was rejected at
         # intake, before it was ever visible here.
         delta = snap.failed - self._last_failed_count
-        self._failed_unreachable += max(0, delta - newly_failed)
+        unattributed = max(0, delta - newly_failed)
+        self._failed_unreachable += unattributed
+        if unattributed:
+            self._events.append(TaskEvent(
+                run_id=self._run_id, step=step, task_id=None, event="failed",
+                agent_id=None, x=None, y=None, target_x=None, target_y=None,
+                attempts=0, reason="unreachable_intake",
+            ))
         self._last_failed_count = snap.failed
 
         self._states = live
+
+    def _event(self, snap, task, kind: str, agent_id: Optional[int] = None,
+               reason: str = "") -> TaskEvent:
+        """Input: the frame, the task it concerns, the event kind, the agent
+        holding it (if any), and a failure reason.
+        Output: the TaskEvent — the agent's *current* position, since the
+        agent still exists in the frame even once the task does not.
+        """
+        position = snap.result.positions.get(agent_id) if agent_id is not None else None
+        return TaskEvent(
+            run_id=self._run_id, step=snap.step, task_id=task.task_id, event=kind,
+            agent_id=agent_id,
+            x=position.x if position is not None else None,
+            y=position.y if position is not None else None,
+            target_x=task.target.x, target_y=task.target.y,
+            attempts=task.attempts, reason=reason,
+        )
+
+    def _done_event(self, snap, task_id: int, agent_id: Optional[int],
+                     target: Optional[Position], attempts: int) -> TaskEvent:
+        """Input: the frame, a task just pruned as completed, its last known
+        assignee, target and attempt count.
+        Output: the "done" TaskEvent — built without a TaskView, since the
+        task is already gone from the frame by the time this fires.
+        """
+        position = snap.result.positions.get(agent_id) if agent_id is not None else None
+        return TaskEvent(
+            run_id=self._run_id, step=snap.step, task_id=task_id, event="done",
+            agent_id=agent_id,
+            x=position.x if position is not None else None,
+            y=position.y if position is not None else None,
+            target_x=target.x if target is not None else None,
+            target_y=target.y if target is not None else None,
+            attempts=attempts, reason="",
+        )
 
     def _observe_agents(self, snap) -> None:
         """Input: the frame just produced.
@@ -177,8 +244,23 @@ class RunCollector(SimulationDriver):
         """
         goals = snap.goals
         idle_now = 0
+        task_by_agent = {
+            task.assignee_id: (task.task_id, task.state.value)
+            for task in snap.tasks
+            if task.assignee_id is not None
+        }
 
         for aid, position in snap.result.positions.items():
+            goal = goals.get(aid)
+            task_id, task_state = task_by_agent.get(aid, (None, None))
+            self._trace.append(AgentTrace(
+                run_id=self._run_id, step=snap.step, agent_id=aid,
+                x=position.x, y=position.y,
+                goal_x=goal.x if goal is not None else None,
+                goal_y=goal.y if goal is not None else None,
+                task_id=task_id, task_state=task_state,
+            ))
+
             if aid in goals:
                 self._busy_ticks += 1
                 self._parked.pop(aid, None)     # working again: not parked
@@ -227,7 +309,7 @@ class RunCollector(SimulationDriver):
         drifts = list(self._drift.values())
 
         return RunRecord(
-            run_id=uuid.uuid4().hex[:12],
+            run_id=self._run_id,
             timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             schema_version=SCHEMA_VERSION,
             git_rev=_git_rev(),
@@ -276,6 +358,22 @@ class RunCollector(SimulationDriver):
             busy_frac=round(self._busy_ticks / agent_ticks, 4),
             idle_max=self._idle_max,
         )
+
+    def events(self) -> list[TaskEvent]:
+        """Input: none.
+        Output: every task-lifecycle transition observed so far, in the
+        order it happened — what a summary row cannot answer: which task,
+        which agent, and why.
+        """
+        return list(self._events)
+
+    def trace(self) -> list[AgentTrace]:
+        """Input: none.
+        Output: one row per agent per step observed so far. Heavier than
+        events(); reach for it when a task event log does not explain a
+        deadlock or drift by itself.
+        """
+        return list(self._trace)
 
 
 def _git_rev() -> str:
