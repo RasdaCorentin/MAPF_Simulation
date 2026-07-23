@@ -1,6 +1,6 @@
 import random
 
-from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity
+from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity, Zone
 from algo import PIBTCoordinator, RandomWalkCoordinator, RandomAllocator
 from mrta import (
     CompositeTaskSource, FleetManager, QueueTaskSource, RandomTaskSource,
@@ -13,6 +13,32 @@ COORDINATORS = {
     "pibt":   PIBTCoordinator,
     "random": RandomWalkCoordinator,
 }
+
+
+def default_zones(width: int, height: int) -> tuple:
+    """Input: the grid dimensions.
+    Output: the three operational zones, as vertical bands.
+
+    The vocabulary is the warehouse's, not the map's: a *rack* is the
+    crate a robot carries, so the regions are named after what sits in
+    them — the loading station, the working space, and the area where
+    empty racks are parked.
+
+    Derived from the grid rather than hard-coded, so ``--width 40``
+    still yields three proportionate bands instead of three slivers
+    against one wall.
+    """
+    band = max(1, width // 5)
+    columns = {
+        "loading station": range(0, band),
+        "working space":   range(band, max(band + 1, width - band)),
+        "empty-rack area": range(max(band + 1, width - band), width),
+    }
+    return tuple(
+        Zone(i, name, [Position(x, y) for x in xs for y in range(height)])
+        for i, (name, xs) in enumerate(columns.items())
+        if len(xs) > 0
+    )
 
 
 def build(config: ScenarioConfig) -> SimulationController:
@@ -65,5 +91,9 @@ def build(config: ScenarioConfig) -> SimulationController:
         sim.add_agent(Agent(i, cell))
     for n, cell in enumerate(obstacle_cells):
         sim.add_object(WorldEntity(n, cell, blocks_movement=True))
+    # Zones label ground and block nothing, so they can be laid over the
+    # agents and obstacles already drawn without contending for cells.
+    for zone in config.zones:
+        sim.add_object(zone)
 
     return SimulationController(sim, fleet=fleet, queue=queue)

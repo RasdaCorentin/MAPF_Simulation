@@ -18,7 +18,7 @@ client.control.build()'s job, and driving it is the frontend's.
 
 import argparse
 
-from client.control import ScenarioConfig, build
+from client.control import ScenarioConfig, build, default_zones
 from report import CsvSink, RunCollector
 
 
@@ -38,6 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tasks",     choices=("none", "random"), default="none",
                         help="background task generation on top of the "
                              "interactive queue (default: none)")
+    parser.add_argument("--zones",     action="store_true",
+                        help="lay the three operational zones over the grid "
+                             "(loading station / working space / empty-rack area)")
     parser.add_argument("--frontend",  choices=("pygame", "headless"), default="pygame")
     parser.add_argument("--steps",     type=int, default=0,
                         help="step budget; 0 means run until quit (pygame only)")
@@ -72,6 +75,7 @@ def main() -> None:
         mode=args.mode,
         tasks=args.tasks,
         seed=args.seed,
+        zones=default_zones(args.width, args.height) if args.zones else (),
     )
 
     # Measurement is opt-in. Without --log the frontend drives the controller

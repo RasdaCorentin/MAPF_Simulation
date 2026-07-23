@@ -30,6 +30,11 @@ class ScenarioConfig:
     patience: int = 12
     max_attempts: int = 3
 
+    # Named regions placed on the grid. Empty by default: a zone is a
+    # scenario decision, not a property of the engine, so a run that was
+    # never told about zones must behave exactly as it did before.
+    zones: tuple = ()
+
     def __post_init__(self) -> None:
         """Input: none. Output: None. Rejects an unbuildable scenario
         early, where the message can still name the offending field.
@@ -45,3 +50,12 @@ class ScenarioConfig:
                 f"{self.agents} agents + {self.obstacles} obstacles do not fit "
                 f"in a {self.width}x{self.height} grid."
             )
+        # Caught here rather than by Grid.place: the offending zone can
+        # still be named, which is the whole point of validating a config.
+        for zone in self.zones:
+            for cell in zone.cells:
+                if not (0 <= cell.x < self.width and 0 <= cell.y < self.height):
+                    raise ValueError(
+                        f"Zone {zone.name!r} has cell {cell} outside the "
+                        f"{self.width}x{self.height} grid."
+                    )

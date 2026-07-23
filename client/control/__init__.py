@@ -9,6 +9,9 @@ instead, and stay ignorant of both.
 from .config import ScenarioConfig
 from .driver import SimulationDriver
 from .controller import SimulationController
-from .factory import build
+from .factory import build, default_zones
 
-__all__ = ["ScenarioConfig", "SimulationDriver", "SimulationController", "build"]
+__all__ = [
+    "ScenarioConfig", "SimulationDriver", "SimulationController",
+    "build", "default_zones",
+]
