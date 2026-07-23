@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional
 
-from core import Position, Simulation
-from mrta import FleetManager, QueueTaskSource, Task
+from core import Position
+from mrta import Task
 
 from client.view import StepSnapshot
 
@@ -23,34 +23,15 @@ class SimulationDriver(ABC):
     than at import. Declaring the contract also lets the class diagram say
     what is actually true, in both the measured and unmeasured cases.
 
-    The attribute half of the contract (``sim``, ``fleet``, ``queue``) is
-    part of it because ``PygameFrontend`` genuinely reads ``sim.grid`` and
-    ``sim.agents`` to hit-test clicks. That is a wider seam than the prose in
-    AGENT.md claims ("frontends never touch Simulation"); this interface
-    records the seam that exists rather than the one we would prefer.
-    Narrowing it — routing hit-testing through StepSnapshot — is a separate
-    change, and this ABC is where it would be enforced.
+    **Four verbs and no handles.** ``sim``, ``fleet`` and ``queue`` used to
+    be on this interface because ``PygameFrontend`` read ``sim.grid`` to
+    hit-test clicks — and ``queue`` in particular handed presentation a live
+    ``QueueTaskSource``, mrta *behaviour*, which the layering forbids. A
+    frame now carries what a click needs to be resolved (the board size, and
+    ``result.positions`` for the reverse cell -> agent lookup), so nothing
+    live has to cross this line. What sits on the other side can no longer
+    be steered, only asked.
     """
-
-    # ── The wrapped scenario ─────────────────────────────────────────────────
-
-    @property
-    @abstractmethod
-    def sim(self) -> Simulation:
-        """The simulation being driven."""
-        ...
-
-    @property
-    @abstractmethod
-    def fleet(self) -> Optional[FleetManager]:
-        """The fleet, in MRTA mode; None in static mode."""
-        ...
-
-    @property
-    @abstractmethod
-    def queue(self) -> Optional[QueueTaskSource]:
-        """The interactive task queue, in MRTA mode; None in static mode."""
-        ...
 
     # ── Driving ──────────────────────────────────────────────────────────────
 

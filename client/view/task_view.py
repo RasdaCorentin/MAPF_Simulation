@@ -19,6 +19,10 @@ class TaskView:
     reference. This is the rule ``PlanResult`` already applies by keying
     on ``agent_id`` rather than exposing ``Agent``.
 
+    ``created_step`` is copied for the same reason the rest is: it is
+    what a reader of the frame needs to say how long a task waited, and
+    the fleet prunes the task that knows it on the tick it ends.
+
     Importing ``TaskState`` is a dependency on a *value*, not on
     behaviour — the frontends never see FleetManager, Allocator or
     TaskSource. Duplicating the enum client-side would reintroduce
@@ -31,6 +35,7 @@ class TaskView:
     priority: float
     assignee_id: Optional[int]
     attempts: int
+    created_step: int = 0
 
     @classmethod
     def of(cls, task: Task) -> "TaskView":
@@ -45,4 +50,5 @@ class TaskView:
             priority=task.priority,
             assignee_id=task.assignee.agent_id if task.assignee is not None else None,
             attempts=task.attempts,
+            created_step=task.created_step,
         )

@@ -61,34 +61,60 @@ class PygameFrontend(Frontend):
         """
         super().__init__(controller)
         self.tick_ms = tick_ms
-        self.cell = self._cell_size()
         self.selection: set[int] = set()
-        self.history: list[StepSnapshot] = []
+        self.history: list[StepSnapshot] = [controller.snapshot()]
         self.cursor = 0                      # index into history being shown
         self.playing = False
         self._drag_from: tuple[int, int] | None = None
         self._drag_to: tuple[int, int] | None = None
+        self.cell = self._cell_size(self.history[0])
+
+    # ── Reading the run ──────────────────────────────────────────────────────
+
+    def _present(self) -> StepSnapshot:
+        """Input: none. Output: the latest frame, whatever is on screen.
+
+        **Hit-test the present, draw the cursor.** In replay the window
+        shows a frame that may be many steps old; resolving a click
+        against it would select — or dispatch to — the robot that *used
+        to* be in that cell. Only geometry may come from the displayed
+        frame, because the board does not resize.
+        """
+        return self.history[-1]
 
     # ── Geometry ─────────────────────────────────────────────────────────────
 
-    def _cell_size(self) -> int:
-        """Input: none.
-        Output: the pixel size of a cell, fitted to the grid so the board
-        stays inside the window budget.
+    @staticmethod
+    def _cell_size(snap: StepSnapshot) -> int:
+        """Input: a frame.
+        Output: the pixel size of a cell, fitted to the board so it stays
+        inside the window budget.
         """
-        grid = self.controller.sim.grid
-        fitted = MAX_GRID_PX // max(grid.width, grid.height)
+        fitted = MAX_GRID_PX // max(1, snap.width, snap.height)
         return max(MIN_CELL, min(MAX_CELL, fitted))
 
     def _cell_at(self, px: int, py: int) -> Position | None:
         """Input: a pixel position.
         Output: the grid cell under it, or None if outside the board.
         """
-        grid = self.controller.sim.grid
+        snap = self._present()
         x, y = px // self.cell, (py - HEADER) // self.cell
-        if py < HEADER or not (0 <= x < grid.width and 0 <= y < grid.height):
+        if py < HEADER or not (0 <= x < snap.width and 0 <= y < snap.height):
             return None
         return Position(x, y)
+
+    def _agent_at(self, cell: Position) -> int | None:
+        """Input: a cell.
+        Output: the id of the agent standing there now, or None.
+
+        ``result.positions`` is filled for *every* agent by every
+        coordinator, so this reverse lookup is complete rather than
+        partial — which is what lets a frame answer a click on its own.
+        """
+        for aid, pos in self._present().result.positions.items():
+            if pos == cell:
+                return aid
+        return None
 
     # ── Main loop ────────────────────────────────────────────────────────────
 
@@ -96,8 +122,8 @@ class PygameFrontend(Frontend):
         """Input: an optional step budget (0 = run until quit).
         Output: None. Opens the interactive window and blocks.
         """
-        grid = self.controller.sim.grid
-        grid_w, grid_h = grid.width * self.cell, grid.height * self.cell
+        snap = self._present()
+        grid_w, grid_h = snap.width * self.cell, snap.height * self.cell
         width  = grid_w + sidebar_mod.WIDTH
         height = max(grid_h + HEADER, 380)
 
@@ -112,8 +138,6 @@ class PygameFrontend(Frontend):
         panel = Sidebar(height)
         clock = pygame.time.Clock()
 
-        self.history = [self.controller.snapshot()]
-        self.cursor = 0
         accumulator = 0.0
 
         while True:
@@ -135,7 +159,7 @@ class PygameFrontend(Frontend):
                 accumulator += dt
                 taken = 0
                 while accumulator >= self.tick_ms and taken < MAX_STEPS_PER_FRAME:
-                    if steps and self.controller.sim.current_step >= steps:
+                    if steps and self._present().step >= steps:
                         self.playing = False
                         break
                     self._advance()
@@ -165,7 +189,7 @@ class PygameFrontend(Frontend):
             elif event.key == pygame.K_LEFT:
                 self.cursor = max(0, self.cursor - 1)
             elif event.key == pygame.K_a:
-                self.selection = {a.agent_id for a in self.controller.sim.agents}
+                self.selection = set(self._present().result.positions)
             elif event.key == pygame.K_c:
                 self.selection.clear()
 
@@ -196,10 +220,10 @@ class PygameFrontend(Frontend):
         if cell is None:
             return
 
-        agent = self.controller.sim.grid.get_agent_at(cell)
-        if agent is not None:
-            self.selection ^= {agent.agent_id}
-        elif self.selection and self.controller.queue is not None:
+        aid = self._agent_at(cell)
+        if aid is not None:
+            self.selection ^= {aid}
+        elif self.selection and self._present().accepts_tasks:
             self.controller.send_batch_to(cell, agent_ids=self.selection)
 
     def _agents_in_band(self, start, end) -> set[int]:
@@ -209,11 +233,11 @@ class PygameFrontend(Frontend):
         x0, x1 = sorted((start[0], end[0]))
         y0, y1 = sorted((start[1], end[1]))
         found = set()
-        for agent in self.controller.sim.agents:
-            cx = agent.position.x * self.cell + self.cell // 2
-            cy = HEADER + agent.position.y * self.cell + self.cell // 2
+        for aid, pos in self._present().result.positions.items():
+            cx = pos.x * self.cell + self.cell // 2
+            cy = HEADER + pos.y * self.cell + self.cell // 2
             if x0 <= cx <= x1 and y0 <= cy <= y1:
-                found.add(agent.agent_id)
+                found.add(aid)
         return found
 
     def _button(self, key: str | None) -> None:
@@ -221,7 +245,7 @@ class PygameFrontend(Frontend):
         Output: None. Applies the button's action.
         """
         if key == "select_all":
-            self.selection = {a.agent_id for a in self.controller.sim.agents}
+            self.selection = set(self._present().result.positions)
         elif key == "clear":
             self.selection.clear()
         elif key == "play":
@@ -295,20 +319,19 @@ class PygameFrontend(Frontend):
         One routine for the whole board — the three legacy renderers each
         carried their own near-identical copy of this.
         """
-        grid = self.controller.sim.grid
         cell = self.cell
 
-        for x in range(grid.width):
-            for y in range(grid.height):
+        for x in range(snap.width):
+            for y in range(snap.height):
                 shade = BG_A if (x + y) % 2 == 0 else BG_B
                 pygame.draw.rect(screen, shade,
                                  (x * cell, HEADER + y * cell, cell, cell))
-        for x in range(grid.width + 1):
+        for x in range(snap.width + 1):
             pygame.draw.line(screen, GRID_C, (x * cell, HEADER),
-                             (x * cell, HEADER + grid.height * cell))
-        for y in range(grid.height + 1):
+                             (x * cell, HEADER + snap.height * cell))
+        for y in range(snap.height + 1):
             pygame.draw.line(screen, GRID_C, (0, HEADER + y * cell),
-                             (grid.width * cell, HEADER + y * cell))
+                             (snap.width * cell, HEADER + y * cell))
 
         for task in snap.tasks:
             colour = (

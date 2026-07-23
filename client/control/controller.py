@@ -15,10 +15,12 @@ class SimulationController(SimulationDriver):
     The single seam between a built scenario and whatever drives it — a
     pygame window, a terminal, a benchmark script. Frontends talk to this
     class through ``SimulationDriver`` and read ``StepSnapshot``; they
-    never touch the coordinator or the fleet, which is what keeps them
-    ignorant of ``algo`` and of mrta behaviour. They do reach ``sim`` for
-    hit-testing — a bounded exception declared on the ABC, not a licence
-    to drive the engine directly.
+    never touch the coordinator, the fleet or the grid, which is what
+    keeps them ignorant of ``algo`` and of mrta behaviour.
+
+    ``sim``, ``fleet`` and ``queue`` stay here and are *not* on the ABC:
+    they are how this class is built and observed from inside
+    ``client.control``, not part of what it offers outward.
 
     ``step()`` stays a pure "advance by one": it owns no clock and no
     loop, so the caller decides the pacing.
@@ -169,6 +171,9 @@ class SimulationController(SimulationDriver):
             goals=dict(self.sim.last_intent.goals),
             objects=self._objects(),
             tasks=tasks,
+            width=self.sim.grid.width,
+            height=self.sim.grid.height,
+            accepts_tasks=self._queue is not None,
             completed=self.fleet.completed_count if self.fleet else 0,
             failed=self.fleet.failed_count if self.fleet else 0,
         )

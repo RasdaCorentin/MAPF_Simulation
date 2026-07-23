@@ -22,20 +22,28 @@ class RunCollector(SimulationDriver):
     wraps is precisely what allows a frontend to drive either one without
     knowing which it got.
 
-    It measures from the **outside**, through public attributes only
-    (``fleet.tasks``, ``fleet.completed_count``, ``sim.last_intent``). Nothing
-    here reaches into FleetManager's internals, so the metrics can be
-    reworked — and they will be — without the fleet having to care.
+    It measures the **frame, not the engine**: every figure below comes from
+    the StepSnapshot that ``step()`` already returns. Reaching for the live
+    Simulation and FleetManager would have been defensible — measuring is a
+    stronger claim than drawing — but it is not necessary: a frame carries
+    the task states, the goals and every agent's position, which is all of
+    what is measured here. So the metrics can be reworked, and they will be,
+    without the engine or the fleet having to care.
     """
 
-    def __init__(self, controller, config, label: str = "") -> None:
-        """Input: the controller to observe, the ScenarioConfig it was built
+    def __init__(self, driver, config, label: str = "") -> None:
+        """Input: the driver to observe, the ScenarioConfig it was built
         from, and a free-text label for the experiment.
         Output: None.
         """
-        self._controller = controller
+        self._driver = driver
         self._config = config
         self._label = label
+
+        # The starting frame: it fixes the fleet size and stands in for the
+        # last observation until the first step produces one.
+        self._last_snap = driver.snapshot()
+        self._agents = len(self._last_snap.result.positions)
 
         self._steps = 0
         self._wall_ms = 0.0
@@ -71,40 +79,26 @@ class RunCollector(SimulationDriver):
     # member surfaces as an AttributeError at the first click, not at import.
     # Declaring SimulationDriver makes the substitution checked instead.
 
-    @property
-    def sim(self):
-        """The simulation being driven."""
-        return self._controller.sim
-
-    @property
-    def fleet(self):
-        """The fleet, in MRTA mode; None in static mode."""
-        return self._controller.fleet
-
-    @property
-    def queue(self):
-        """The interactive task queue, in MRTA mode; None in static mode."""
-        return self._controller.queue
-
     def snapshot(self):
-        """Input: none. Output: the controller's current snapshot."""
-        return self._controller.snapshot()
+        """Input: none. Output: the wrapped driver's current snapshot."""
+        return self._driver.snapshot()
 
     def send_batch_to(self, target, agent_ids=None, priority: float = 5.0):
         """Input: a destination, the eligible agents, a priority.
-        Output: the tasks minted and queued by the wrapped controller.
+        Output: the tasks minted and queued by the wrapped driver.
         """
-        return self._controller.send_batch_to(target, agent_ids, priority)
+        return self._driver.send_batch_to(target, agent_ids, priority)
 
     def step(self):
         """Input: none.
         Output: the step's snapshot, after recording this tick.
         """
         t0 = time.perf_counter()
-        snapshot = self._controller.step()
+        snapshot = self._driver.step()
         self._wall_ms += (time.perf_counter() - t0) * 1e3
         self._steps += 1
-        self._observe()
+        self._observe(snapshot)
+        self._last_snap = snapshot
         return snapshot
 
     def run(self, steps: int) -> list:
@@ -113,30 +107,26 @@ class RunCollector(SimulationDriver):
 
     # ── Observation ──────────────────────────────────────────────────────────
 
-    def _observe(self) -> None:
-        """Input: none. Output: None. Records one tick."""
-        self._observe_tasks()
-        self._observe_agents()
+    def _observe(self, snap) -> None:
+        """Input: the frame just produced. Output: None. Records one tick."""
+        self._observe_tasks(snap)
+        self._observe_agents(snap)
 
-    def _observe_tasks(self) -> None:
-        """Input: none.
+    def _observe_tasks(self, snap) -> None:
+        """Input: the frame just produced.
         Output: None. Tracks task transitions from outside the fleet.
 
         A task that disappears is terminal, but pruning has already removed it,
         so the transition is inferred from the state seen on the previous tick
-        plus the fleet's own counters. Intake rejections never enter
-        ``fleet.tasks`` at all — they show up only as a jump in failed_count
-        that no live task accounts for.
+        plus the frame's cumulative counters. Intake rejections never appear in
+        ``snap.tasks`` at all — they show up only as a jump in ``failed`` that
+        no live task accounts for.
         """
-        fleet = self._controller.fleet
-        if fleet is None:
-            return
-
-        step = self._controller.sim.current_step
+        step = snap.step
         live = {}
         newly_failed = 0
 
-        for task in fleet.tasks:
+        for task in snap.tasks:
             live[task.task_id] = task.state
             self._targets.setdefault(task.task_id, task.target)
             self._attempts_max = max(self._attempts_max, task.attempts)
@@ -144,7 +134,7 @@ class RunCollector(SimulationDriver):
             previous = self._states.get(task.task_id)
             if task.state is TaskState.ASSIGNED and task.task_id not in self._assigned_at:
                 self._assigned_at[task.task_id] = step
-                self._assigned_from[task.task_id] = task.assignee.position
+                self._assigned_from[task.task_id] = snap.result.positions[task.assignee_id]
                 self._waits.append(step - task.created_step)
             elif previous is TaskState.ASSIGNED and task.state is not TaskState.ASSIGNED:
                 # Released by the watchdog: it may retry or give up here.
@@ -173,22 +163,21 @@ class RunCollector(SimulationDriver):
 
         # Whatever failed without a live task to explain it was rejected at
         # intake, before it was ever visible here.
-        delta = fleet.failed_count - self._last_failed_count
+        delta = snap.failed - self._last_failed_count
         self._failed_unreachable += max(0, delta - newly_failed)
-        self._last_failed_count = fleet.failed_count
+        self._last_failed_count = snap.failed
 
         self._states = live
 
-    def _observe_agents(self) -> None:
-        """Input: none.
+    def _observe_agents(self, snap) -> None:
+        """Input: the frame just produced.
         Output: None. Splits agent-ticks into busy and goal-less, and measures
         how far a goal-less agent has been pushed from where it parked.
         """
-        goals = self._controller.sim.last_intent.goals
+        goals = snap.goals
         idle_now = 0
 
-        for agent in self._controller.sim.agents:
-            aid = agent.agent_id
+        for aid, position in snap.result.positions.items():
             if aid in goals:
                 self._busy_ticks += 1
                 self._parked.pop(aid, None)     # working again: not parked
@@ -197,12 +186,12 @@ class RunCollector(SimulationDriver):
             idle_now += 1
             self._goalless_ticks += 1
             if aid not in self._parked:
-                self._parked[aid] = agent.position
-            elif agent.position != self._parked[aid]:
+                self._parked[aid] = position
+            elif position != self._parked[aid]:
                 self._displaced += 1
                 self._drift[aid] = max(
                     self._drift.get(aid, 0),
-                    self._manhattan(agent.position, self._parked[aid]),
+                    self._manhattan(position, self._parked[aid]),
                 )
         self._idle_max = max(self._idle_max, idle_now)
 
@@ -216,14 +205,23 @@ class RunCollector(SimulationDriver):
     def record(self, label: Optional[str] = None) -> RunRecord:
         """Input: an optional label overriding the one given at construction.
         Output: the RunRecord for the run so far.
-        """
-        fleet = self._controller.fleet
-        config = self._config
-        agent_ticks = max(1, len(self._controller.sim.agents) * self._steps)
 
-        done = fleet.completed_count if fleet else 0
-        failed = fleet.failed_count if fleet else 0
-        unfinished = len(fleet.tasks) if fleet else 0
+        The totals are read from the **last observed frame**, not from a
+        fresh one: ``_observe`` derived every transition below from that
+        same frame, and ``failed_unreachable`` in particular is the part
+        of ``failed`` that no live task accounted for. Re-asking the
+        driver here would date the totals a tick later than the
+        transitions explaining them, and the two would stop adding up.
+        """
+        snap = self._last_snap
+        config = self._config
+        agent_ticks = max(1, self._agents * self._steps)
+
+        # In static mode there is no fleet: the frame reports no task and
+        # zero counters, which is the honest record of a run with no work.
+        done = snap.completed
+        failed = snap.failed
+        unfinished = len(snap.tasks)
         created = done + failed + unfinished
         drifts = list(self._drift.values())
 

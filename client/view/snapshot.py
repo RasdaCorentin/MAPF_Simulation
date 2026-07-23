@@ -15,6 +15,13 @@ class StepSnapshot:
     step *n+50*. That is what makes it legitimate for a frontend to keep
     a history while the engine keeps running — the engine has no undo,
     so replaying the past is only sound if the past cannot change.
+
+    It also carries what a frame needs to be *acted on*, not only drawn:
+    the board size to turn a pixel into a cell, ``result.positions`` to
+    turn a cell back into an agent, and ``accepts_tasks`` to know whether
+    a click can dispatch anything at all. Without those a frontend has to
+    reach into the live engine to resolve a click — which is how it ends
+    up hit-testing the present against a frame that describes the past.
     """
 
     step:     int
@@ -22,6 +29,9 @@ class StepSnapshot:
     goals:    dict[int, Position] = field(default_factory=dict)
     objects:  tuple = ()                                  # ((Position, kind), ...)
     tasks:    tuple[TaskView, ...] = ()
+    width:    int = 0
+    height:   int = 0
+    accepts_tasks: bool = False                           # MRTA mode: a queue is attached
     completed: int = 0
     failed:    int = 0
 
