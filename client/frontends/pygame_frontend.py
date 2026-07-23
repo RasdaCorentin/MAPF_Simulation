@@ -244,7 +244,9 @@ class PygameFrontend(Frontend):
         """Input: a sidebar button key (or None).
         Output: None. Applies the button's action.
         """
-        if key == "select_all":
+        if key is not None and key.startswith(sidebar_mod.ZONE_PREFIX):
+            self._send_to_zone(key[len(sidebar_mod.ZONE_PREFIX):])
+        elif key == "select_all":
             self.selection = set(self._present().result.positions)
         elif key == "clear":
             self.selection.clear()
@@ -252,6 +254,26 @@ class PygameFrontend(Frontend):
             self._toggle_play()
         elif key == "step":
             self._forward()
+
+    def _send_to_zone(self, name: str) -> None:
+        """Input: a zone name.
+        Output: None. Sends the selected batch into that zone.
+
+        ``within`` is what makes this mean "into the station" rather than
+        "near the station": the dispatch BFS still crosses the whole map
+        to follow connectivity, but it may only *land* on the zone's own
+        cells, so a full station leaves robots waiting instead of
+        spilling into the aisle.
+        """
+        snap = self._present()
+        if not self.selection or not snap.accepts_tasks:
+            return
+        zone = next((z for z in snap.zones if z.name == name), None)
+        if zone is None:
+            return
+        self.controller.send_batch_to(
+            zone.cells[0], agent_ids=self.selection, within=frozenset(zone.cells)
+        )
 
     def _toggle_play(self) -> None:
         """Input: none. Output: None. Playing always resumes from the
@@ -326,6 +348,14 @@ class PygameFrontend(Frontend):
                 shade = BG_A if (x + y) % 2 == 0 else BG_B
                 pygame.draw.rect(screen, shade,
                                  (x * cell, HEADER + y * cell, cell, cell))
+        # Zones under everything else: they label the ground, so agents,
+        # tasks and obstacles must stay legible on top of them.
+        for i, zone in enumerate(snap.zones):
+            tint = sidebar_mod.ZONE_COLORS[i % len(sidebar_mod.ZONE_COLORS)]
+            for pos in zone.cells:
+                pygame.draw.rect(screen, tint,
+                                 (pos.x * cell, HEADER + pos.y * cell, cell, cell))
+
         for x in range(snap.width + 1):
             pygame.draw.line(screen, GRID_C, (x * cell, HEADER),
                              (x * cell, HEADER + snap.height * cell))
