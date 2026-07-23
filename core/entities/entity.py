@@ -29,6 +29,20 @@ class WorldEntity:
         self.scale = scale
 
     @property
+    def cells(self) -> tuple:
+        """Input: none.
+        Output: every cell the entity occupies — just its position for
+        everything except a ``Zone``, which covers several.
+
+        This exists so ``Grid`` can index any entity without knowing
+        which kinds span more than one cell. It is **not** ``scale``: it
+        is an explicit list of cells for *indexing*, whereas ``scale``
+        would be a movement footprint and would require the planner to
+        change with it.
+        """
+        return (self.position,)
+
+    @property
     def active(self) -> bool:
         """Input: none.
         Output: True while the entity takes part in the simulation
