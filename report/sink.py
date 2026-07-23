@@ -1,29 +1,40 @@
 import csv
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Iterable
 
-from .run_record import RunRecord
+from .record import Record
 
 
 class ResultSink(ABC):
-    """Where a finished experiment goes.
+    """Where a row goes — a RunRecord, a TaskEvent or an AgentTrace alike.
 
     One method, so a CSV file and a database are interchangeable at the call
-    site: ``main.py`` records a RunRecord and never learns which it got. A
+    site: ``main.py`` appends a record and never learns which sink it got. A
     SQL implementation is a subclass with the same signature — it needs no
-    change anywhere else, which is the whole point of the seam.
+    change anywhere else, which is the whole point of the seam. Generic over
+    ``Record`` rather than tied to ``RunRecord``: the shape a sink needs is
+    "columns() and as_row()", and TaskEvent/AgentTrace supply exactly that.
     """
 
     @abstractmethod
-    def append(self, record: RunRecord) -> None:
-        """Input: a finished run.
+    def append(self, record: Record) -> None:
+        """Input: one row.
         Output: None. Persists it. Must be safe to call on an existing store.
         """
         ...
 
+    def append_all(self, records: Iterable[Record]) -> None:
+        """Input: many rows of the same shape.
+        Output: None. Appends each in turn — a sink that can do better
+        (one file open instead of one per row) overrides this.
+        """
+        for record in records:
+            self.append(record)
+
 
 class CsvSink(ResultSink):
-    """Appends one row per experiment to a CSV file.
+    """Appends rows to a CSV file, one sink per file.
 
     The header is written only when the file is created. On an existing file
     the stored header is compared against the record's fields and a mismatch
@@ -39,11 +50,23 @@ class CsvSink(ResultSink):
         """
         self.path = Path(path)
 
-    def append(self, record: RunRecord) -> None:
-        """Input: a finished run.
-        Output: None. Appends one row, writing the header if the file is new.
+    def append(self, record: Record) -> None:
+        """Input: one row.
+        Output: None. Appends it, writing the header if the file is new.
         """
-        columns = RunRecord.columns()
+        self.append_all([record])
+
+    def append_all(self, records: Iterable[Record]) -> None:
+        """Input: many rows of the same shape.
+        Output: None. Opens the file once and writes every row — the
+        difference between one header check and one per row, which
+        matters once a trace runs to thousands of them.
+        """
+        records = list(records)
+        if not records:
+            return
+
+        columns = type(records[0]).columns()
         exists = self.path.exists() and self.path.stat().st_size > 0
 
         if exists:
@@ -54,7 +77,8 @@ class CsvSink(ResultSink):
             writer = csv.DictWriter(handle, fieldnames=columns)
             if not exists:
                 writer.writeheader()
-            writer.writerow(record.as_row())
+            for record in records:
+                writer.writerow(record.as_row())
 
     def _check_header(self, columns: list[str]) -> None:
         """Input: the expected column names.
@@ -79,5 +103,8 @@ class CsvSink(ResultSink):
 class NullSink(ResultSink):
     """Discards records — for runs that should not be logged."""
 
-    def append(self, record: RunRecord) -> None:
-        """Input: a finished run. Output: None. Does nothing."""
+    def append(self, record: Record) -> None:
+        """Input: one row. Output: None. Does nothing."""
+
+    def append_all(self, records: Iterable[Record]) -> None:
+        """Input: many rows. Output: None. Does nothing."""
