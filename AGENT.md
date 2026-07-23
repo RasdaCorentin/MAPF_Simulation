@@ -368,14 +368,10 @@ it when `tasks="random"`. Swapping in a new algorithm or allocator touches this 
 ### `SimulationDriver` — `client/control/driver.py`
 ```python
 class SimulationDriver(ABC):
-    sim:   Simulation              # abstract property
-    fleet: FleetManager | None     # abstract property
-    queue: QueueTaskSource | None  # abstract property
-
     {abstract} step() -> StepSnapshot
     {abstract} run(steps) -> list[StepSnapshot]
     {abstract} snapshot() -> StepSnapshot
-    {abstract} send_batch_to(target, agent_ids=None, priority=5.0) -> list[Task]
+    {abstract} send_batch_to(target, agent_ids=None, priority=5.0, within=None) -> list[Task]
 ```
 **The seam a frontend depends on** — and the only thing that crosses the `client.control`
 boundary outward. Two classes implement it: `SimulationController` normally, and `RunCollector`
@@ -387,10 +383,13 @@ substitution *checked*: a decorator missing a member now fails at instantiation 
 first click. It is also what a decorator means — presenting the same face as the thing it wraps
 is precisely what allows the substitution.
 
-`sim` is on the interface because `PygameFrontend` genuinely reads `sim.grid` and `sim.agents` to
-hit-test clicks (8 call sites). **That is a wider seam than one would like**, and it is the honest
-record of what exists rather than what we would prefer; narrowing it — routing hit-testing through
-`StepSnapshot` — is a separate change, and this ABC is where it would be enforced.
+**Four verbs and no handles.** `sim`, `fleet` and `queue` were on this interface for as long as
+`PygameFrontend` read `sim.grid` to hit-test clicks — and `queue` in particular handed presentation
+a live `QueueTaskSource`, i.e. mrta *behaviour*, which the layering forbids. A `StepSnapshot` now
+carries what a click needs to be resolved (`width`/`height`, and `result.positions` for the reverse
+cell -> agent lookup), so nothing live crosses this line: what sits on the other side can be asked,
+not steered. The handles stay on the concrete `SimulationController`, which nothing outside
+`client.control` names.
 
 ### `SimulationController` — `client/control/controller.py`
 ```python
@@ -401,11 +400,12 @@ class SimulationController(SimulationDriver):
 
     step() -> StepSnapshot                    # pure "advance by one" — owns no clock
     run(steps) -> list[StepSnapshot]
-    send_batch_to(target, agent_ids=None, priority=5.0) -> list[Task]
+    send_batch_to(target, agent_ids=None, priority=5.0, within=None) -> list[Task]
     snapshot() -> StepSnapshot
 ```
-Read-only properties over `_sim`/`_fleet`/`_queue`: a controller never re-targets its scenario,
-and the ABC requires the attribute half of the contract to be declarable.
+Read-only properties over `_sim`/`_fleet`/`_queue`: a controller never re-targets its scenario.
+They are **not** on the ABC — they are how this class is built and observed from *inside*
+`client.control`, not part of what it offers outward.
 
 The single seam between a built scenario and whatever drives it. `send_batch_to` mints one task
 per destination cell — `target` first, then outwards by BFS over free cells — with
@@ -416,12 +416,18 @@ move inherits collision avoidance for free. That is why there is no manual per-c
 anywhere in this API. The BFS follows connectivity rather than scanning a radius, so it never
 returns a cell that looks near but sits behind a wall.
 
+`within` bounds *where the jobs may land*, never where the search may go: "send them to the
+loading station" must mean the station itself and stop rather than spill into the aisle once it
+is full, yet a zone reached through a corridor outside it is still one zone — bounding the walk
+instead of the collection would make it two.
+
 ### `TaskView` / `StepSnapshot` — `client/view/`
 ```python
 @dataclass(frozen=True)
 class TaskView:
     task_id: int;  target: Position;  state: TaskState
     priority: float;  assignee_id: int | None;  attempts: int
+    created_step: int
     @classmethod
     def of(task: Task) -> TaskView       # copies VALUES — never holds the Task or its assignee
 
@@ -432,6 +438,8 @@ class StepSnapshot:
     goals: dict[int, Position]           # from sim.last_intent, not from the coordinator
     objects: tuple                       # ((Position, kind), ...)
     tasks: tuple[TaskView, ...]
+    width: int;  height: int             # board size — a pixel becomes a cell
+    accepts_tasks: bool                  # MRTA mode: a queue is attached
     completed: int;  failed: int
     def counts() -> dict[str, int]       # pending/assigned live + done/failed cumulative
 ```
@@ -441,6 +449,14 @@ frame rewrite its own past, and a live `task.assignee.position` would contradict
 `result.positions[id]` *inside the same snapshot*. Reducing the assignee to its `agent_id` is
 the rule `PlanResult` already applies. This is precisely what makes it sound for a frontend to
 keep a history while the engine runs on.
+
+**A frame is also what a click is resolved against**, not only what is drawn: `width`/`height`
+turn a pixel into a cell, `result.positions` turns that cell back into an agent, and
+`accepts_tasks` says whether a click can dispatch anything at all. Without them a frontend has
+to reach into the live engine to answer a click — which is exactly how it ends up hit-testing
+the present against a frame describing the past. `created_step` is on `TaskView` for the same
+reason the rest is: it is what a reader needs to say how long a task waited, and the fleet prunes
+the task that knows it on the tick it ends.
 
 ### `Frontend` / `HeadlessFrontend` / `PygameFrontend` — `client/frontends/`
 ```python
@@ -720,9 +736,8 @@ class NullSink(ResultSink)          # discards
 
 class RunCollector(SimulationDriver):   # report/collector.py
     RunCollector(driver, config, label="")
-    step() / run(steps)             # forwards to the controller, measuring
+    step() / run(steps)             # forwards to the wrapped driver, measuring
     snapshot() / send_batch_to()    # forwarded verbatim
-    sim / fleet / queue             # forwarded properties
     record(label=None) -> RunRecord
 ```
 
@@ -737,9 +752,16 @@ frontend drives the `SimulationController` itself.
 - **`RunCollector` decorates the controller, it does not extend it** — but both implement
   `SimulationDriver` (`client/control/driver.py`), which is what makes the substitution a
   checked contract rather than `__getattr__` luck: a missing member now fails at instantiation
-  instead of at the first click. It observes through **public attributes only**
-  (`fleet.tasks`, `fleet.completed_count`, `sim.last_intent`), so the metrics can be reworked —
-  and they will be — without the engine or the fleet changing.
+  instead of at the first click. It measures the **frame, not the engine**: every figure comes
+  from the `StepSnapshot` that `step()` already returns, so the metrics can be reworked — and
+  they will be — without the engine or the fleet changing. Reaching for the live `Simulation`
+  and `FleetManager` would have been defensible (measuring is a stronger claim than drawing);
+  it is simply not necessary, since a frame carries the task states, the goals and every
+  agent's position.
+- **`record()` reads the last *observed* frame**, not a fresh one. Every transition it reports
+  was derived from that frame — `failed_unreachable` in particular is the part of `failed` no
+  live task accounted for — so re-asking the driver would date the totals a tick later than the
+  transitions explaining them, and the row would stop adding up.
 - **Measurement is opt-in.** `report/` is still being validated, so it stays off the nominal
   path: without `--log` no collector is built and the frontend drives the controller itself.
   Either way the class diagram's `Frontend o-- SimulationDriver` holds.
@@ -771,10 +793,14 @@ break it. When in doubt, the class diagram arbitrates (see the diagram rules bel
   `Allocator`, `TaskSource`). Allowed: `core`, the frozen types in `client/view/`, and
   `SimulationDriver` from `client.control` — **that one name only**. Value types (`Position`,
   `TaskState`) are fine. Composition belongs in `client/control/`.
-- **A frontend reads the engine only for hit-testing.** `PygameFrontend` does touch
-  `controller.sim.grid` / `.agents` to turn a click into a cell or an agent. This is a known,
-  bounded exception, declared on `SimulationDriver`; everything else must come from
-  `StepSnapshot`. Do not widen it — no frontend may mutate the grid, the fleet or the coordinator.
+- **A frontend never reads the engine at all.** Everything it draws *and* everything it resolves
+  a click against comes from `StepSnapshot`; `SimulationDriver` hands out four verbs and no handle
+  on a live object, so there is nothing to reach through. Do not put `sim`, `fleet` or `queue`
+  back on that interface to make a frontend feature easier — extend the frame instead.
+- **Hit-test the present, draw the cursor.** History is replayable, so the frame on screen may be
+  many steps old. A click must be resolved against `history[-1]` (`PygameFrontend._present()`);
+  resolving it against `history[cursor]` would order the robot that *used to* be in that cell.
+  Geometry may come from the displayed frame — the board does not resize.
 - **Visual/rendering changes -> `client/frontends/` only.**
 - **Never call `SimulationController.step()` in a loop with a sleep** — a frontend owns the
   clock, and any real-time loop needs the `MAX_STEPS_PER_FRAME` clamp.
@@ -862,10 +888,6 @@ scope now**; recorded so the vocabulary in the diagram does not have to be un-le
 
 ### → Frontend diagram
 
-- **Hit-test the present, draw the cursor.** History is replayable, so the frame on screen may
-  be many steps old. A click must be resolved against `history[-1]`; resolving it against
-  `history[cursor]` would order the robot that *used to* be in that cell. Geometry
-  (`width`/`height`) may come from the cursor — it does not change.
 - `result.positions` is keyed by `agent_id` and filled for **every** agent by both
   `PIBTCoordinator` and `RandomWalkCoordinator`. That is what makes reverse-lookup
   ("which robot is in this cell?") from a snapshot complete rather than partial — the whole
@@ -877,19 +899,8 @@ scope now**; recorded so the vocabulary in the diagram does not have to be un-le
 
 ### → Component diagram / architecture note
 
-- **Why `sim`, `fleet` and `queue` left `SimulationDriver`.** They existed because
-  `PygameFrontend` read `sim.grid` to hit-test. `queue` in particular handed a frontend a live
-  `QueueTaskSource` — mrta *behaviour*, which the layering forbids. They now live on the
-  concrete `SimulationController` only.
-- **Nothing was widened to pay for it.** `RunCollector` (`report/`) could have named the concrete
-  `SimulationController` — measuring does justify reaching further than drawing does. It does not
-  need to: a `StepSnapshot` carries the task states, the goals and every agent's position, which
-  is the whole of what it measures. It wraps the ABC, holds no live object, and still *implements*
-  `SimulationDriver`, so the substitution a frontend depends on stays checked.
 - Neither allocator filters eligibility: `FleetManager._by_eligibility()` groups pending tasks
   by eligibility class and calls the allocator once per class, restricted classes first.
-- `send_batch_to(..., within=)` bounds *where jobs may land*; the BFS still crosses the whole
-  map to follow connectivity, only its **collection** is restricted.
 
 ### → Still to do on the diagrams themselves
 
