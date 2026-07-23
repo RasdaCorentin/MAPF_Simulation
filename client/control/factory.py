@@ -1,7 +1,9 @@
 import random
 
 from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity, Zone
-from algo import PIBTCoordinator, RandomWalkCoordinator, RandomAllocator
+from algo import (
+    PIBTCoordinator, RandomWalkCoordinator, EasiestAllocator, RandomAllocator,
+)
 from mrta import (
     CompositeTaskSource, FleetManager, QueueTaskSource, RandomTaskSource,
 )
@@ -72,9 +74,15 @@ def build(config: ScenarioConfig) -> SimulationController:
                 RandomTaskSource(grid, every=config.task_every,
                                  count=config.task_count, seed=config.seed),
             )
+        # The baseline allocator is seeded from the scenario, so "same
+        # --seed, same run" holds for it too and not only for the layout.
+        allocator = (
+            EasiestAllocator() if config.allocator == "easiest"
+            else RandomAllocator(seed=config.seed)
+        )
         fleet = FleetManager(
             source=source,
-            allocator=RandomAllocator(),
+            allocator=allocator,
             patience=config.patience,
             max_attempts=config.max_attempts,
         )

@@ -35,6 +35,9 @@ def parse_args() -> argparse.Namespace:
                         help="navigation algorithm (default: pibt)")
     parser.add_argument("--mode",      choices=("mrta", "static"), default="mrta",
                         help="mrta = task allocation, static = fixed goals")
+    parser.add_argument("--allocator", choices=("easiest", "random"), default="easiest",
+                        help="task allocation strategy (default: easiest — the "
+                             "nearest free agent takes each task)")
     parser.add_argument("--tasks",     choices=("none", "random"), default="none",
                         help="background task generation on top of the "
                              "interactive queue (default: none)")
@@ -73,6 +76,7 @@ def main() -> None:
         obstacles=args.obstacles,
         algo=args.algo,
         mode=args.mode,
+        allocator=args.allocator,
         tasks=args.tasks,
         seed=args.seed,
         zones=default_zones(args.width, args.height) if args.zones else (),
