@@ -59,6 +59,9 @@ class PIBTCoordinator(Coordinator):
         # Base priority overwritten by the goal-reached -inf demotion, kept so
         # the demotion can be undone when the agent is no longer at its goal.
         self._demoted: dict[Agent, float] = {}
+        # Base priority overwritten by a priority-inheritance boost this tick,
+        # kept so it can be undone once this tick's cascade is resolved.
+        self._inherited: dict[Agent, float] = {}
 
     # ── Heuristic ────────────────────────────────────────────────────────────
 
@@ -118,6 +121,7 @@ class PIBTCoordinator(Coordinator):
             # on cycles (rotations).
             if occupant is not None and self._reservations.get_reservation(occupant) is None:
                 self._reservations.reserve(agent, v)
+                self._inherited.setdefault(occupant, self._priorities.get_base(occupant))
                 self._priorities.set_base(occupant, self._priorities.get_priority(agent) + EPSILON)
                 if not self._pibt(occupant, agent, grid):
                     self._reservations.release(agent)
@@ -184,6 +188,7 @@ class PIBTCoordinator(Coordinator):
         self._reservations.clear()
         self._processed.clear()
         self._inheritance.clear()
+        self._inherited.clear()
 
         ordered = sorted(agents, key=lambda a: -self._priorities.get_priority(a))
 
@@ -197,10 +202,17 @@ class PIBTCoordinator(Coordinator):
             reservation = self._reservations.get_reservation(a)
             positions[a.agent_id] = reservation if reservation is not None else a.position
 
-        return PlanResult(
+        result = PlanResult(
             positions=positions,
             moves={a.agent_id: (a.position, positions[a.agent_id]) for a in agents},
             order=[a.agent_id for a in ordered],
             inheritance=[(p.agent_id, q.agent_id) for p, q in self._inheritance],
             priorities={a.agent_id: self._priorities.get_priority(a) for a in agents},
         )
+
+        # Inheritance boosts are scoped to this tick's cascade: undo them now
+        # so an agent pushed once does not keep outranking its pusher forever.
+        for agent, base in self._inherited.items():
+            self._priorities.set_base(agent, base)
+
+        return result
