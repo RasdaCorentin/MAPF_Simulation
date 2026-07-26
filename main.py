@@ -9,7 +9,8 @@ main.py — entry point for a MAPF scenario.
     python main.py --agents 40 --width 25 --height 25 --obstacles 20
 
 In the window: select agents (click, or drag a rubber band), then click
-a cell to send the batch there. Space plays/pauses, arrows step and
+a cell to send the batch there. Z toggles zone-drawing mode, then a drag
+creates a zone over the band. Space plays/pauses, arrows step and
 replay, A/C select all or clear, Q quits.
 
 Everything below is argument parsing: building the scenario is
@@ -19,7 +20,7 @@ client.control.build()'s job, and driving it is the frontend's.
 import argparse
 from pathlib import Path
 
-from client.control import ScenarioConfig, build, default_zones
+from client.control import ScenarioConfig, build
 from report import CsvSink, RunCollector
 
 
@@ -42,9 +43,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tasks",     choices=("none", "random"), default="none",
                         help="background task generation on top of the "
                              "interactive queue (default: none)")
-    parser.add_argument("--zones",     action="store_true",
-                        help="lay the three operational zones over the grid "
-                             "(loading station / working space / empty-rack area)")
     parser.add_argument("--frontend",  choices=("pygame", "headless"), default="pygame")
     parser.add_argument("--steps",     type=int, default=0,
                         help="step budget; 0 means run until quit (pygame only)")
@@ -80,7 +78,6 @@ def main() -> None:
         allocator=args.allocator,
         tasks=args.tasks,
         seed=args.seed,
-        zones=default_zones(args.width, args.height) if args.zones else (),
     )
 
     # Measurement is opt-in. Without --log the frontend drives the controller
