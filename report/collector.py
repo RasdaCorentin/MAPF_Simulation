@@ -101,6 +101,13 @@ class RunCollector(SimulationDriver):
         """
         return self._driver.send_batch_to(target, agent_ids, priority, within)
 
+    def create_zone(self, cells, name=None):
+        """Input: the cells the new zone covers, and an optional name.
+        Output: the zone created by the wrapped driver. Not otherwise
+        measured: a zone is layout, not an event the run record tracks.
+        """
+        return self._driver.create_zone(cells, name)
+
     def step(self):
         """Input: none.
         Output: the step's snapshot, after recording this tick.

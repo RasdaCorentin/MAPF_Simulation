@@ -4,7 +4,7 @@ from typing import Iterable, Optional
 from core import Position
 from mrta import Task
 
-from client.view import StepSnapshot
+from client.view import StepSnapshot, ZoneView
 
 
 class SimulationDriver(ABC):
@@ -23,7 +23,7 @@ class SimulationDriver(ABC):
     than at import. Declaring the contract also lets the class diagram say
     what is actually true, in both the measured and unmeasured cases.
 
-    **Four verbs and no handles.** ``sim``, ``fleet`` and ``queue`` used to
+    **Five verbs and no handles.** ``sim``, ``fleet`` and ``queue`` used to
     be on this interface because ``PygameFrontend`` read ``sim.grid`` to
     hit-test clicks — and ``queue`` in particular handed presentation a live
     ``QueueTaskSource``, mrta *behaviour*, which the layering forbids. A
@@ -31,6 +31,12 @@ class SimulationDriver(ABC):
     ``result.positions`` for the reverse cell -> agent lookup), so nothing
     live has to cross this line. What sits on the other side can no longer
     be steered, only asked.
+
+    ``create_zone`` keeps that rule even though it *adds* something to the
+    grid: a frontend hands over cells — a value already crossing the line,
+    same as ``target`` in ``send_batch_to`` — never a ``Zone``. Building the
+    entity stays inside ``client.control``, the one place allowed to import
+    ``core.Zone`` for construction rather than as a value type.
     """
 
     # ── Driving ──────────────────────────────────────────────────────────────
@@ -63,5 +69,19 @@ class SimulationDriver(ABC):
         """Input: a destination, the agents allowed to serve it, a priority,
         and optionally the cells the jobs may land on.
         Output: the tasks minted and queued.
+        """
+        ...
+
+    # ── Editing ──────────────────────────────────────────────────────────────
+
+    @abstractmethod
+    def create_zone(
+        self,
+        cells: Iterable[Position],
+        name: Optional[str] = None,
+    ) -> ZoneView:
+        """Input: the cells the new zone covers, and an optional name
+        (auto-numbered when omitted).
+        Output: the created zone, already placed and projected.
         """
         ...

@@ -1,4 +1,5 @@
 from collections import deque
+from itertools import count
 from typing import Iterable, Optional
 
 from core import Agent, Position, Simulation, PlanResult, Zone
@@ -41,6 +42,11 @@ class SimulationController(SimulationDriver):
         self._queue = queue
         self._last_result = PlanResult(
             positions={a.agent_id: a.position for a in simulation.agents},
+        )
+        # Seeded past whatever zones the scenario was built with, so a
+        # zone created live never collides with one declared up front.
+        self._zone_ids = count(
+            1 + max((z.entity_id for z in simulation.grid.get_all(Zone)), default=-1)
         )
 
     # ── The wrapped scenario (read-only: a controller does not re-target) ────
@@ -122,6 +128,27 @@ class SimulationController(SimulationDriver):
         ]
         self.queue.push_many(tasks)
         return tasks
+
+    # ── Editing ──────────────────────────────────────────────────────────────
+
+    def create_zone(
+        self,
+        cells: Iterable[Position],
+        name: Optional[str] = None,
+    ) -> ZoneView:
+        """Input: the cells the new zone covers, and an optional name.
+        Output: the created zone, already placed on the grid.
+
+        The frontend hands over cells, never a ``Zone``: building the
+        entity is what makes this method live in ``client.control`` and
+        not in presentation. Naming stays optional because the frontend
+        has no text entry — a click-drawn zone gets "zone N" and can be
+        renamed later by whatever eventually adds that.
+        """
+        entity_id = next(self._zone_ids)
+        zone = Zone(entity_id, name or f"zone {entity_id}", cells)
+        self.sim.add_object(zone)
+        return ZoneView.of(zone)
 
     def _free_cells_around(
         self,
