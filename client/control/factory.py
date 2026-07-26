@@ -17,30 +17,61 @@ COORDINATORS = {
 }
 
 
+def _rect(x0: int, y0: int, w: int, h: int, width: int, height: int) -> list:
+    """Input: a rectangle (top-left corner, then size) and the grid's size.
+    Output: the cells it covers, clipped to the grid.
+
+    Clipped rather than rejected: the layout below is written in
+    fractions of the grid, so a very small board would otherwise turn a
+    rounding artefact into a crash at start-up.
+    """
+    return [
+        Position(x, y)
+        for x in range(max(0, x0), min(width, x0 + w))
+        for y in range(max(0, y0), min(height, y0 + h))
+    ]
+
+
 def default_zones(width: int, height: int) -> tuple:
     """Input: the grid dimensions.
-    Output: the three operational zones, as vertical bands.
+    Output: the three operational zones, as rectangular blocks.
 
     The vocabulary is the warehouse's, not the map's: a *rack* is the
     crate a robot carries, so the regions are named after what sits in
     them — the loading station, the working space, and the area where
     empty racks are parked.
 
-    Derived from the grid rather than hard-coded, so ``--width 40``
-    still yields three proportionate bands instead of three slivers
-    against one wall.
+    A zone marks a *place of work*, not a third of the map: the blocks
+    below leave most of the floor as plain aisle, so "send them to the
+    loading station" names a dock and not a whole column. They are still
+    derived from the grid rather than hard-coded, so ``--width 40``
+    scales them instead of leaving three slivers against one wall.
+
+    **The table below is the knob.** Each entry is ``(x, y, w, h)`` in
+    cells, top-left corner first; nothing outside this function knows
+    the geometry, so moving or resizing a zone here is enough — the
+    sidebar button, the tint on the board and "send the batch there"
+    all follow the cells.
     """
-    band = max(1, width // 5)
-    columns = {
-        "loading station": range(0, band),
-        "working space":   range(band, max(band + 1, width - band)),
-        "empty-rack area": range(max(band + 1, width - band), width),
+    dock_w, dock_h = max(2, width // 4), max(1, height // 6)
+    work_w, work_h = max(1, width // 2), max(1, height // 2)
+    park_w, park_h = max(2, width // 4), max(1, height // 5)
+
+    blocks = {
+        # A narrow dock centred against the top wall.
+        "loading station": ((width - dock_w) // 2, 0, dock_w, dock_h),
+        # The shop floor: centred, clear of both the dock and the park.
+        "working space":   ((width - work_w) // 2, (height - work_h) // 2,
+                            work_w, work_h),
+        # Empty racks parked out of the way, in the bottom-left corner.
+        "empty-rack area": (0, height - park_h, park_w, park_h),
     }
-    return tuple(
-        Zone(i, name, [Position(x, y) for x in xs for y in range(height)])
-        for i, (name, xs) in enumerate(columns.items())
-        if len(xs) > 0
-    )
+    zones = []
+    for i, (name, (x0, y0, w, h)) in enumerate(blocks.items()):
+        cells = _rect(x0, y0, w, h, width, height)
+        if cells:
+            zones.append(Zone(i, name, cells))
+    return tuple(zones)
 
 
 def build(config: ScenarioConfig) -> SimulationController:
