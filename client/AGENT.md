@@ -13,7 +13,7 @@ Three subpackages, documented together because the seam between them is the poin
 | `frontends/` | presentation only — pygame window, terminal | `core`, `client.view`, and `SimulationDriver` — that one name |
 
 **Frontends know neither `algo` nor any mrta *behaviour*** (`FleetManager`, `Allocator`,
-`TaskSource`) and never touch the engine: they see frozen frames and four verbs. That rule is
+`TaskSource`) and never touch the engine: they see frozen frames and five verbs. That rule is
 the reason `view/` exists at all.
 
 ### `ScenarioConfig` — `client/control/config.py`
@@ -28,15 +28,18 @@ class ScenarioConfig:
     tasks: str = "none"   # "none" | "random"  — background generation
     task_every: int = 5;  task_count: int = 2
     patience: int = 12;   max_attempts: int = 3    # FleetManager watchdog tuning
-    zones: tuple[Zone] = ()                        # named regions, empty by default
+    zones: tuple[Zone] = ()                        # named regions declared up front, empty by default
 ```
 Frozen: a config is a record of what was asked for, so a run is reproducible from it plus its
 seed. `__post_init__` rejects unknown algo/allocator/mode/tasks, a scenario that cannot fit, and a
 zone whose cells fall off the grid — caught here rather than by `Grid.place` so the message can
 still *name* the offending zone, which is the whole point of validating a config.
 
-`zones` is empty by default: a zone is a scenario decision, not a property of the engine, so a
-run never told about zones behaves exactly as it did before they existed.
+`zones` is empty by default: a zone declared here is a scenario decision, not a property of the
+engine, so a run never told about zones behaves exactly as it did before they existed. It exists
+for reproducible headless runs (`sim_many_mrta.py --zones`, backed by `factory.default_zones`);
+`main.py` no longer populates it — the interactive frontend creates zones live instead, through
+`SimulationDriver.create_zone`.
 
 ### `build` — `client/control/factory.py`
 ```python
@@ -54,6 +57,7 @@ class SimulationDriver(ABC):
     {abstract} run(steps) -> list[StepSnapshot]
     {abstract} snapshot() -> StepSnapshot
     {abstract} send_batch_to(target, agent_ids=None, priority=5.0, within=None) -> list[Task]
+    {abstract} create_zone(cells, name=None) -> ZoneView
 ```
 **The seam a frontend depends on** — and the only thing that crosses the `client.control`
 boundary outward. Two classes implement it: `SimulationController` normally, and `RunCollector`
@@ -65,13 +69,19 @@ substitution *checked*: a decorator missing a member now fails at instantiation 
 first click. It is also what a decorator means — presenting the same face as the thing it wraps
 is precisely what allows the substitution.
 
-**Four verbs and no handles.** `sim`, `fleet` and `queue` were on this interface for as long as
+**Five verbs and no handles.** `sim`, `fleet` and `queue` were on this interface for as long as
 `PygameFrontend` read `sim.grid` to hit-test clicks — and `queue` in particular handed presentation
 a live `QueueTaskSource`, i.e. mrta *behaviour*, which the layering forbids. A `StepSnapshot` now
 carries what a click needs to be resolved (`width`/`height`, and `result.positions` for the reverse
 cell -> agent lookup), so nothing live crosses this line: what sits on the other side can be asked,
 not steered. The handles stay on the concrete `SimulationController`, which nothing outside
 `client.control` names.
+
+`create_zone` keeps the same discipline even though it *adds* to the grid: the frontend hands
+over `cells` — already an allowed value type, same as `send_batch_to`'s `target` — never a `Zone`.
+Building the entity happens inside `SimulationController`, which is what lets zone placement move
+from a scenario-build-time decision (`ScenarioConfig.zones`, still used by headless sweeps) to a
+frontend one, without `client/frontends/` ever importing `core.Zone`.
 
 ### `SimulationController` — `client/control/controller.py`
 ```python
@@ -83,6 +93,7 @@ class SimulationController(SimulationDriver):
     step() -> StepSnapshot                    # pure "advance by one" — owns no clock
     run(steps) -> list[StepSnapshot]
     send_batch_to(target, agent_ids=None, priority=5.0, within=None) -> list[Task]
+    create_zone(cells, name=None) -> ZoneView  # auto-numbered "zone N" when name is omitted
     snapshot() -> StepSnapshot
 ```
 Read-only properties over `_sim`/`_fleet`/`_queue`: a controller never re-targets its scenario.
@@ -102,6 +113,10 @@ returns a cell that looks near but sits behind a wall.
 loading station" must mean the station itself and stop rather than spill into the aisle once it
 is full, yet a zone reached through a corridor outside it is still one zone — bounding the walk
 instead of the collection would make it two.
+
+`create_zone` mints an id past whatever the scenario shipped with (`max(existing) + 1`, seeded at
+construction) and calls `sim.add_object`, the same entry point `factory.build` uses for
+config-declared zones — a live zone is placed exactly like a scenario one, just later.
 
 ### `TaskView` / `StepSnapshot` — `client/view/`
 ```python
@@ -171,7 +186,8 @@ near-identical copy), with **`CELL` derived** from grid size and a window budget
 old hard-coded 60.
 
 Mouse: click an agent to toggle · drag a rubber band to select · click a cell to dispatch the
-batch. Keys: `Space` play/pause · `→` step · `←` replay back · `A`/`C` select all / clear · `Q`.
+batch · in zone-drawing mode, drag to create a zone over the band. Keys: `Space` play/pause ·
+`→` step · `←` replay back · `A`/`C` select all / clear · `Z` toggle zone-drawing mode · `Q`.
 
 - **Fixed-step accumulator**: the frontend owns the clock, so `step()` stays a pure "advance by
   one". `MAX_STEPS_PER_FRAME` is **not optional** — once a tick costs more than `tick_duration`
@@ -233,7 +249,11 @@ The footer shows, for each step, the priority order, each agent's move, and any 
   `PIBTCoordinator` and `RandomWalkCoordinator`. That completeness is what makes the reverse
   lookup ("which robot is in this cell?") sound rather than partial — the whole basis for
   hit-testing without the engine.
-- Sidebar buttons are keyed `zone:<name>` and laid out from `snap.zones`, so a fourth zone
-  declared in a scenario yields a fourth button with no change in the sidebar.
+- Sidebar buttons are keyed `zone:<name>` and laid out from `snap.zones`, so a fourth zone —
+  declared in a scenario or drawn live with `Z` — yields a fourth button with no change in the
+  sidebar.
+- `RunRecord.zones` (`report/`) still counts `len(config.zones)`, i.e. zones the scenario
+  shipped with, not ones drawn live after `build()`. A logged run's zone count can undercount
+  what the window actually shows if the two are mixed.
 - `MAX_STEPS_PER_FRAME` is not optional: without the clamp a slow tick lets the accumulator
   outrun the frame and the window freezes (spiral of death).

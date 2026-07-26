@@ -55,11 +55,13 @@ any other suffix is refused), `--label` tags it. Without `--log` nothing is meas
 frontend drives the `SimulationController` directly — see [`report/AGENT.md`](report/AGENT.md).
 
 `main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
-`--allocator {easiest,random}`, `--mode {mrta,static}`, `--tasks {none,random}`, `--zones`,
+`--allocator {easiest,random}`, `--mode {mrta,static}`, `--tasks {none,random}`,
 `--frontend {pygame,headless}`, `--steps`, `--seed`, `--tick-ms`, `--log FILE.csv`, `--label`.
 
 **In the window**: click an agent to toggle it, drag a rubber band to select several, then click a
-cell to send the batch there — or a zone button in the sidebar to send it to a named region.
+cell to send the batch there — or a zone button in the sidebar to send it to a named region. `Z`
+toggles zone-drawing mode, then a drag creates a zone over the band — zones are a frontend
+decision now, not a scenario one; `--zones` was removed from `main.py`.
 `Space` play/pause · `→` step · `←` replay backwards · `A`/`C` select all / clear · `Q` quit.
 
 Dependencies: `pip install -r requirements.txt` — pygame is the only one, pinned `>=2.5`.
