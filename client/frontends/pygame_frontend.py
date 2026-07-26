@@ -4,6 +4,8 @@ Controls:
     left click on an agent   toggle its selection
     left drag                rubber-band selection
     left click on a cell     send the selected batch there
+    Z                        toggle zone-drawing mode
+    left drag (zone mode)    create a zone over the band
     Space                    play / pause
     Right arrow              one step (while paused)
     Left arrow               replay backwards through history
@@ -42,6 +44,7 @@ DARK     = (30, 30, 30)
 HDR_BG   = (230, 234, 250)
 SELECT   = (250, 190, 40)
 BAND     = (90, 140, 220)
+ZONE_BAND = (60, 165, 100)
 OBSTACLE = (180, 30, 30)
 
 AGENT_COLORS = [
@@ -65,6 +68,7 @@ class PygameFrontend(Frontend):
         self.history: list[StepSnapshot] = [controller.snapshot()]
         self.cursor = 0                      # index into history being shown
         self.playing = False
+        self.drawing_zone = False
         self._drag_from: tuple[int, int] | None = None
         self._drag_to: tuple[int, int] | None = None
         self.cell = self._cell_size(self.history[0])
@@ -192,6 +196,8 @@ class PygameFrontend(Frontend):
                 self.selection = set(self._present().result.positions)
             elif event.key == pygame.K_c:
                 self.selection.clear()
+            elif event.key == pygame.K_z:
+                self.drawing_zone = not self.drawing_zone
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if event.pos[0] >= grid_w:
@@ -209,9 +215,14 @@ class PygameFrontend(Frontend):
 
     def _release(self, start: tuple[int, int], end: tuple[int, int]) -> None:
         """Input: the drag's start and end pixel positions.
-        Output: None. A drag selects agents in the band; a plain click
+        Output: None. In zone-drawing mode, creates a zone over the
+        band. Otherwise a drag selects agents in the band; a plain click
         toggles an agent, or — on an empty cell — dispatches the batch.
         """
+        if self.drawing_zone:
+            self._create_zone(start, end)
+            return
+
         if max(abs(start[0] - end[0]), abs(start[1] - end[1])) > 4:
             self.selection = self._agents_in_band(start, end)
             return
@@ -240,6 +251,34 @@ class PygameFrontend(Frontend):
                 found.add(aid)
         return found
 
+    def _create_zone(self, start, end) -> None:
+        """Input: the drag's start and end pixel positions.
+        Output: None. Creates a zone over the band's cells, clipped to
+        the board; a plain click still yields a valid single-cell zone.
+        Zone-drawing mode stays on, so several zones can be drawn in a
+        row without reopening it.
+        """
+        cells = self._cells_in_band(start, end)
+        if cells:
+            self.controller.create_zone(cells)
+
+    def _cells_in_band(self, start, end) -> list[Position]:
+        """Input: two pixel corners.
+        Output: the grid cells the rectangle between them covers,
+        clipped to the board.
+        """
+        snap = self._present()
+        x0, x1 = sorted((start[0], end[0]))
+        y0, y1 = sorted((start[1], end[1]))
+        cx0, cx1 = max(0, x0 // self.cell), min(snap.width - 1, x1 // self.cell)
+        cy0 = max(0, (y0 - HEADER) // self.cell)
+        cy1 = min(snap.height - 1, (y1 - HEADER) // self.cell)
+        return [
+            Position(x, y)
+            for x in range(cx0, cx1 + 1)
+            for y in range(cy0, cy1 + 1)
+        ]
+
     def _button(self, key: str | None) -> None:
         """Input: a sidebar button key (or None).
         Output: None. Applies the button's action.
@@ -250,6 +289,8 @@ class PygameFrontend(Frontend):
             self.selection = set(self._present().result.positions)
         elif key == "clear":
             self.selection.clear()
+        elif key == "new_zone":
+            self.drawing_zone = not self.drawing_zone
         elif key == "play":
             self._toggle_play()
         elif key == "step":
@@ -317,18 +358,21 @@ class PygameFrontend(Frontend):
         self._draw_header(screen, snap, grid_w, fonts)
         self._draw_board(screen, snap, fonts)
         panel.draw(screen, grid_w, snap, self.selection,
-                   self.playing, not self._at_present(), fonts)
+                   self.playing, not self._at_present(), self.drawing_zone, fonts)
 
         if self._drag_from and self._drag_to:
             x0, x1 = sorted((self._drag_from[0], self._drag_to[0]))
             y0, y1 = sorted((self._drag_from[1], self._drag_to[1]))
-            pygame.draw.rect(screen, BAND, (x0, y0, x1 - x0, y1 - y0), 1)
+            colour = ZONE_BAND if self.drawing_zone else BAND
+            pygame.draw.rect(screen, colour, (x0, y0, x1 - x0, y1 - y0), 2)
 
     def _draw_header(self, screen, snap: StepSnapshot, grid_w: int, fonts) -> None:
         """Input: surface, snapshot, board width, fonts.
         Output: None. Draws the top bar."""
         pygame.draw.rect(screen, HDR_BG, (0, 0, grid_w, HEADER))
         hint = "select agents, then click a cell to send them"
+        if self.drawing_zone:
+            hint = "drag to draw a zone — Z to stop"
         if not self._at_present():
             hint = f"replaying step {snap.step} — Space returns to live"
         label = fonts["sm"].render(hint, True, DARK)

@@ -17,6 +17,8 @@ TEXT      = (30, 30, 30)
 MUTED     = (110, 112, 130)
 BTN       = (225, 228, 240)
 BTN_HOVER = (208, 213, 232)
+BTN_ON    = (196, 232, 210)
+BTN_ON_HOVER = (172, 220, 192)
 
 STATE_COLORS = {
     "pending":  (150, 150, 160),
@@ -47,9 +49,9 @@ class Sidebar:
         """
         self.height = height
         self.buttons: dict[str, pygame.Rect] = {}
-        self._transport_top = height - 4 * 34 - 12
+        self._transport_top = height - 5 * 34 - 12
         y = self._transport_top
-        for key in ("select_all", "clear", "play", "step"):
+        for key in ("select_all", "clear", "new_zone", "play", "step"):
             self.buttons[key] = pygame.Rect(12, y, WIDTH - 24, 28)
             y += 34
 
@@ -82,10 +84,12 @@ class Sidebar:
         selection: set[int],
         playing: bool,
         replaying: bool,
+        drawing_zone: bool,
         fonts: dict,
     ) -> None:
         """Input: the surface, the sidebar's left edge, the snapshot to
-        report, the current selection, transport state, and the fonts.
+        report, the current selection, transport state, whether zone
+        drawing is active, and the fonts.
         Output: None.
         """
         panel = pygame.Rect(origin_x, 0, WIDTH, self.height)
@@ -135,13 +139,17 @@ class Sidebar:
         labels = {
             "select_all": "Select all  [A]",
             "clear":      "Clear       [C]",
+            "new_zone":   ("Drawing…    [Z]" if drawing_zone else "New zone    [Z]"),
             "play":       ("Pause    [Space]" if playing else "Play     [Space]"),
             "step":       "Step          [>]",
         }
         for key, text in labels.items():
             shifted = self.buttons[key].move(origin_x, 0)
             hovered = shifted.collidepoint(mouse)
-            pygame.draw.rect(screen, BTN_HOVER if hovered else BTN, shifted, border_radius=4)
+            on = key == "new_zone" and drawing_zone
+            colour = (BTN_ON_HOVER if hovered else BTN_ON) if on else \
+                     (BTN_HOVER if hovered else BTN)
+            pygame.draw.rect(screen, colour, shifted, border_radius=4)
             label = fonts["sm"].render(text, True, TEXT)
             screen.blit(label, label.get_rect(center=shifted.center))
 
