@@ -114,7 +114,7 @@ There is currently **no test suite** — these are the de-facto regression check
 ├── demo_pibt.py       — legacy interactive PIBT demo entry point
 ├── sim_many_pibt.py   — headless PIBT benchmark sweep -> sim_results.csv
 ├── sim_many_mrta.py   — headless allocation benchmark sweep -> mrta_results.csv
-├── README.md · GUIDE.md · CONVENTION.md · CLAUDE.md · rapport_plan.md
+├── README.md · GUIDE.md · CONVENTION.md · CLAUDE.md
 └── requirements.txt · LICENSE
 ```
 

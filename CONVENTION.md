@@ -19,7 +19,6 @@ Folder and file names are in English.
 ├── AGENT.md             — full architecture reference for coding agents
 ├── CLAUDE.md            — pointer that imports AGENT.md
 ├── CONVENTION.md        — this file
-├── rapport_plan.md      — design report on the task lifecycle (French, working doc)
 ├── core/                — pure simulation engine (entities, environment, engine)
 ├── algo/                — MAPF algorithms (coordination, allocation)
 ├── mrta/                — Multi-Robot Task Allocation

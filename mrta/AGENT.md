@@ -74,7 +74,7 @@ world with `appear_at`, and proving it would duplicate the planner with a rival 
 
 The watchdog belongs to `FleetManager` because it is the only component seeing a task *across*
 ticks; in the coordinator it would re-couple navigation with allocation semantics, exactly what
-`DispatchIntent` separated. Full rationale in `rapport_plan.md`.
+`DispatchIntent` separated.
 
 **Eligibility** — `Task.eligible` restricts who may take a task, so a caller can send a
 *specific* batch somewhere. `_allocate()` groups pending tasks by eligibility class and calls
