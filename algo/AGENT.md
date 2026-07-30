@@ -19,7 +19,14 @@ Minimal coordinator: each agent tries random directions until it finds a valid, 
 
 ### PIBT decomposition — `algo/coordination/`
 
-PIBT is split across three classes: `PIBTCoordinator` holds the algorithm, while reservations and priorities each live in their own class (`ReservationTable`, `PriorityManager`). `PIBTCoordinator` implements `Coordinator`. **Zero pygame dependency** — rendering lives in `client/`.
+PIBT is split across four pieces: reservations and priorities each live in their own class
+(`ReservationTable`, `PriorityManager`); the recursive core (Algorithm 1) is a free function,
+`pibt_core.run_pibt_pass`, shared with `LaCAMCoordinator`'s low level (see the static-mode
+section below) — a caller other than `PIBTCoordinator` can pre-seed a fixed reservation
+before a pass and have it survive, which `PIBTCoordinator`'s own per-tick reset would
+otherwise wipe. `PIBTCoordinator` itself is a thin per-tick wrapper: goal/priority
+bookkeeping around one unconstrained call into the shared core. **Zero pygame dependency**
+— rendering lives in `client/`.
 
 ```python
 class ReservationTable:            # algo/coordination/reservation_table.py
@@ -39,19 +46,21 @@ class PriorityManager:             # algo/coordination/priority_manager.py
     get_base(agent) -> float        # what set_base last wrote — read before the -inf demotion
     set_base(agent, p)              # writes both _base and _dynamic immediately
 
+def run_pibt_pass(                 # algo/coordination/pibt_core.py — Algorithm 1, extracted
+    grid, goals, priorities, reservations, order, processed=None,
+) -> (inheritance, inherited):
+    ...                             # does NOT clear `reservations`, does NOT undo boosts —
+                                     # both are the caller's job (see PIBTCoordinator.plan())
+
 class PIBTCoordinator(Coordinator):   # algo/coordination/pibt_coordinator.py
     goals: dict[Agent, Position]     # public — rebuilt each tick from the intent; read by renderers
     _reservations: ReservationTable
     _priorities: PriorityManager
-    _processed: set[Agent]
-    _inheritance: list[tuple[Agent, Agent]]
     _last_intent: dict[int, tuple]   # last (goal, priority) per agent — for the re-seed guard
     _demoted: dict[Agent, float]     # base priority overwritten by the -inf demotion, kept to undo it
 
     plan(agents, grid, intent) -> PlanResult
     _apply_intent(agents, intent)          # rebuild goals; re-seed base priority only on change
-    _pibt(agent, parent, grid) -> bool     # grid passed as an argument, no stored grid state
-    _h(pos, agent, grid) -> int            # Manhattan distance heuristic
 ```
 
 **Usage** — goals/priorities come from the intent, via a dispatcher:
@@ -84,9 +93,81 @@ coordinator/dispatcher wiring, not as the recommended entry point.
   restored the moment the state stops holding — the goal moved, or inheritance pushed the agent
   off it. Writing `-inf` without restoring it stranded the agent at the bottom of the ranking for
   the rest of the run.
-- Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `_pibt(k, i, grid)` recurses.
+- Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `pibt_core._pibt(k, i, ...)` recurses.
 - Backtracking: if k cannot move, i tries another candidate cell (`ReservationTable.release`).
 - Obstacles are detected via `entity.blocks_movement and entity.active` on the grid's static entities.
+
+---
+
+### Static-mode-only limitation — `PIBTPlusCoordinator` and `LaCAMCoordinator`
+
+Both are **batch** algorithms: they solve one fixed start→goal joint configuration by
+searching ahead over several ticks before committing to a single move — incompatible with
+this project's MRTA mode, which reassigns agent goals continuously (these are *joint*
+algorithms, so one agent's goal changing invalidates the whole solved path for every
+agent). They only support `--mode static` (goals fixed for the run's lifetime), enforced
+twice: `ScenarioConfig.__post_init__` rejects `algo in ("pibt+", "lacam")` with
+`mode != "static"`, and each coordinator's `plan()` independently raises `RuntimeError` if
+it ever sees `intent.goals` change relative to what its cached path was built for — the
+second guard catches any hand-rolled `Simulation` that bypasses the factory (the way
+`sim_many_pibt.py` already does). MRTA/dynamic-goal support (recomputing the joint path on
+every goal change) is an explicit, undone follow-up, not silently unsupported.
+
+Both work the same way: on the first `plan()` call, solve the whole joint path once
+against a **scratch** grid/agents clone (`algo/coordination/_scratch.py`'s
+`build_scratch_grid`, never the live grid), cache it as `list[dict[int, Position]]`, then
+every later call just pops the next cached configuration and returns it as a `PlanResult`.
+
+```python
+class PIBTPlusCoordinator(Coordinator):       # algo/coordination/pibt_plus_coordinator.py
+    __init__(stall_patience: int | None = None, hard_cap: int | None = None)
+    plan(agents, grid, intent) -> PlanResult    # cache-replay
+    _solve(agents, grid, intent) -> list[Config]
+    _run_pibt_phase(scratch_sim, goals) -> (joint_path, remaining_agent_ids)
+```
+
+Phase 1 runs a plain `PIBTCoordinator` inside a throwaway `Simulation`, ticking until every
+agent is at goal or a stall/cap heuristic gives up — there is no closed-form T_min bound in
+this codebase (no graph-diameter utility), so `stall_patience` (ticks with no per-agent
+Manhattan improvement) and `hard_cap` stand in for it; this is a documented deviation from
+the paper's bound, not an oversight. Phase 2 hands whichever agents remain to
+`PushAndSwapCoordinator` (`algo/coordination/push_and_swap.py`, internal — not
+re-exported), swapped onto the *same* scratch `Simulation` instance (`coordinator` is a
+plain mutable attribute) so it continues from exactly where phase 1 stopped.
+`PushAndSwapCoordinator` itself simplifies the textbook algorithm two ways, documented in
+its module docstring: no tree-structured swap gadget (a boxed-in blocker falls back to a
+multi-tick relocation to the nearest free cell instead) and no vertex-swap (kept consistent
+with `PIBTCoordinator`, which never produces one either). One consequence, verified directly
+rather than left abstract: the mover being solved always advances *this* tick — only the
+blocker is ever relocated, the mover never waits or retreats — so a blocker cornered in a
+dead end whose one neighbor is exactly the mover's own cell has nowhere to go regardless of
+free space elsewhere, and raises. A plain dead-end corridor with two agents swapping ends
+can land in exactly that configuration; `LaCAMCoordinator` resolves the same scenario (its
+DFS finds one agent retreating fully to its own start before the other advances — it is not
+committed to one fixed solving order). Prefer LaCAM over PIBT+ for corridor-heavy layouts.
+Well-formedness is otherwise not validated anywhere in this codebase; an unsolvable instance
+raises rather than looping forever.
+
+```python
+class LaCAMCoordinator(Coordinator):          # algo/coordination/lacam_coordinator.py
+    __init__(node_cap: int = 20000)
+    plan(agents, grid, intent) -> PlanResult    # cache-replay, identical shape to PIBT+
+    _solve(agents, grid, intent) -> list[Config]     # DFS over HighLevelNode
+    _generate_successor(config, grid, goals, fixed) -> Config | None
+```
+
+`HighLevelNode`/`is_goal_config`/`config_key` live in `algo/coordination/lacam_config.py`.
+The low level (`_generate_successor`) is where the shared extraction pays for itself: it
+builds a fresh `ReservationTable`/`PriorityManager` per call (no state leaking between DFS
+branches), pre-seeds one agent's forced next cell via `reservations.reserve(...)`, marks
+that agent `processed` so `pibt_core.run_pibt_pass` never gives it a fresh attempt, and
+reads back everyone's reservation afterwards. One edge case worth knowing: an agent
+displaced from the fixed cell that ends up fully boxed in falls back to "stay in place" —
+which is exactly the fixed cell — and `ReservationTable.reserve()` would silently overwrite
+the pre-seeded entry, since that displaced agent was never part of the recursion that would
+normally notice and retry a clobbered reservation. `_generate_successor` checks for this
+explicitly after the pass and treats it as an infeasible constraint (returns `None`,
+prompting the DFS to try a different one) rather than let it corrupt the search silently.
 
 **Adding a new Coordinator:**
 ```python
@@ -98,7 +179,7 @@ class MyAlgo(Coordinator):
         positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
         return PlanResult(positions=positions, moves={...})
 ```
-Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`.
+Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`. If the new algorithm needs a constrained PIBT pass (a fixed next cell for one agent, the rest resolved around it), reuse `algo/coordination/pibt_core.run_pibt_pass` — see `LaCAMCoordinator._generate_successor` for the shape — rather than re-deriving Algorithm 1 again.
 
 ---
 

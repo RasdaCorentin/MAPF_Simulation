@@ -54,7 +54,8 @@ python sim_many_mrta.py                         # allocation sweep -> mrta_resul
 any other suffix is refused), `--label` tags it. Without `--log` nothing is measured and the
 frontend drives the `SimulationController` directly — see [`report/AGENT.md`](report/AGENT.md).
 
-`main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`, `--algo {pibt,random}`,
+`main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`,
+`--algo {pibt,random,pibt+,lacam}` (`pibt+`/`lacam` are batch algorithms, `--mode static` only),
 `--allocator {easiest,random}`, `--mode {mrta,static}`, `--tasks {none,random}`,
 `--frontend {pygame,headless}`, `--steps`, `--seed`, `--tick-ms`, `--log FILE.csv`, `--label`.
 
