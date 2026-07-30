@@ -33,8 +33,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height",    type=int, default=15)
     parser.add_argument("--agents",    type=int, default=20)
     parser.add_argument("--obstacles", type=int, default=0)
-    parser.add_argument("--algo",      choices=("pibt", "random"), default="pibt",
-                        help="navigation algorithm (default: pibt)")
+    parser.add_argument("--algo",      choices=("pibt", "random", "pibt+"), default="pibt",
+                        help="navigation algorithm (default: pibt). "
+                             "pibt+ is a batch algorithm and only "
+                             "supports --mode static")
     parser.add_argument("--mode",      choices=("mrta", "static"), default="mrta",
                         help="mrta = task allocation, static = fixed goals")
     parser.add_argument("--allocator", choices=("easiest", "random"), default="easiest",

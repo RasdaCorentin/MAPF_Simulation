@@ -2,7 +2,8 @@ import random
 
 from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity, Zone
 from algo import (
-    PIBTCoordinator, RandomWalkCoordinator, EasiestAllocator, RandomAllocator,
+    PIBTCoordinator, RandomWalkCoordinator, PIBTPlusCoordinator,
+    EasiestAllocator, RandomAllocator,
 )
 from mrta import (
     CompositeTaskSource, FleetManager, QueueTaskSource, RandomTaskSource,
@@ -14,6 +15,7 @@ from .controller import SimulationController
 COORDINATORS = {
     "pibt":   PIBTCoordinator,
     "random": RandomWalkCoordinator,
+    "pibt+":  PIBTPlusCoordinator,
 }
 
 
