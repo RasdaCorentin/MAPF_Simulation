@@ -47,12 +47,15 @@ python main.py --algo random --mode static      # the historical random-walk dem
 python demo_pibt.py                             # legacy PIBT demo (5x5, keyboard navigation)
 python demo_pibt.py -d                          # same, debug mode: terminal print, zero pygame
 python sim_many_pibt.py --seeds 2               # headless L0 benchmark sweep -> sim_results.csv
-python sim_many_mrta.py                         # allocation sweep -> mrta_results.csv
+python sim_many_mrta.py --seeds 2               # allocation sweep -> mrta_results.csv
 ```
 
-**Run logging is opt-in**: `--log runs.csv` appends one row per run (`.csv` only for now,
-any other suffix is refused), `--label` tags it. Without `--log` nothing is measured and the
-frontend drives the `SimulationController` directly — see [`report/AGENT.md`](report/AGENT.md).
+**Run logging is opt-in**: `--log runs.csv` appends one summary row per run (`.csv` only for now,
+any other suffix is refused), plus a per-task event log at `runs.events.csv` and a per-step,
+per-agent trace at `runs.trace.csv` — the detail the summary row cannot carry, for when a run
+needs debugging rather than just measuring. `--label` tags the summary row. Without `--log`
+nothing is measured and the frontend drives the `SimulationController` directly — see
+[`report/AGENT.md`](report/AGENT.md).
 
 `main.py` flags: `--width/--height` (15), `--agents` (20), `--obstacles`,
 `--algo {pibt,random,pibt+,lacam}` (`pibt+`/`lacam` are batch algorithms, `--mode static` only),
@@ -71,12 +74,18 @@ runs without it.
 
 **Fastest ways to exercise the code without a window** (use these to verify changes):
 ```bash
-python main.py --frontend headless --tasks random --steps 20   # full MRTA path
+python main.py --frontend headless --tasks random --steps 20   # full MRTA path (easiest allocator)
 python main.py --frontend headless --mode static --algo random --steps 10
 python demo_pibt.py -d
 python sim_many_pibt.py --seeds 2                              # ~200 instances, a few seconds
+python sim_many_mrta.py --seeds 2                              # 36 runs, ~1 minute
 ```
 There is currently **no test suite** — these are the de-facto regression checks.
+
+**MRTA runs are reproducible from `--seed` alone** — every allocator owns a seeded RNG rather
+than the `random` module's global one. Two runs of the same command must produce identical
+output; if they stop doing so, something has reached for global randomness again, and every
+logged `RunRecord` becomes uncomparable with it.
 
 ---
 

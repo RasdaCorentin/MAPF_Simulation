@@ -29,14 +29,19 @@ class WorldEntity:
     appear_at:       int   # step at which the entity spawns (0 = immediate)
     blocks_movement: bool  # True -> cell impassable for agents
     scale:           int   # RESERVED — stored, never read (see below)
+    cells:           tuple # property, the cells occupied — (position,) unless overridden
     active:          bool  # property, True by default
 ```
 Common base for any entity placed on the grid. Blocking obstacles are created with `WorldEntity(id, pos, blocks_movement=True)` — **no dedicated subclass needed**.
 
-⚠ **`scale` is reserved, not implemented.** It is assigned in `__init__` and read nowhere in the
-repo: `Grid` indexes one cell per entity, and neither the planner nor any renderer consults it.
-Multi-cell footprints would need `Grid`, `is_blocked`, `_validate` and PIBT's candidate generation
-to change together. Do not write code that assumes it works.
+**`cells` is what `Grid` indexes**, so the grid can place any entity without knowing which kinds
+span more than one cell. The base returns `(position,)`; only `Zone` overrides it.
+
+⚠ **`cells` is not `scale`, and `scale` is still reserved.** `cells` is an explicit list for
+*indexing* — "where do I find this entity?". `scale` would be a movement *footprint* — "how much
+room does it need to move?" — and would force `Grid`, `is_blocked`, `Simulation._validate` and
+PIBT's candidate generation to change together. `scale` is assigned in `__init__` and read
+nowhere in the repo: do not write code that assumes it works.
 
 ---
 
@@ -88,7 +93,8 @@ class Grid:
 
     is_valid(position) -> bool
     is_blocked(position) -> bool        # True if an agent OR an active blocking entity occupies it
-    place(entity: WorldEntity)          # raises if invalid; raises if an agent cell is already taken
+    place(entity: WorldEntity)          # indexes it at EVERY entity.cells; raises if invalid
+                                        # or if an agent cell is already taken
     remove(entity: WorldEntity)
     get_agent_at(position) -> Agent | None
     get_entities_at(position, kind=None) -> list[WorldEntity]   # filters active=True on _static
