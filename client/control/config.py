@@ -15,7 +15,7 @@ class ScenarioConfig:
     agents: int = 20
     obstacles: int = 0
 
-    algo: str = "pibt"      # "pibt" | "random" | "pibt+"
+    algo: str = "pibt"      # "pibt" | "random" | "pibt+" | "lacam"
     mode: str = "mrta"      # "mrta" | "static"
     seed: int = 0
 
@@ -44,18 +44,18 @@ class ScenarioConfig:
         """Input: none. Output: None. Rejects an unbuildable scenario
         early, where the message can still name the offending field.
         """
-        if self.algo not in ("pibt", "random", "pibt+"):
+        if self.algo not in ("pibt", "random", "pibt+", "lacam"):
             raise ValueError(
-                f"Unknown algo {self.algo!r} (expected 'pibt', 'random' or 'pibt+')."
+                f"Unknown algo {self.algo!r} (expected 'pibt', 'random', 'pibt+' or 'lacam')."
             )
         if self.mode not in ("mrta", "static"):
             raise ValueError(f"Unknown mode {self.mode!r} (expected 'mrta' or 'static').")
-        # pibt+ is a batch algorithm: it solves one fixed joint
+        # pibt+/lacam are batch algorithms: they solve one fixed joint
         # configuration by searching ahead over several ticks before
         # committing to a move. MRTA continuously reassigns goals, which
         # would invalidate that joint solve on almost every tick — so,
-        # for now, it only supports a run whose goals never change.
-        if self.algo == "pibt+" and self.mode != "static":
+        # for now, they only support a run whose goals never change.
+        if self.algo in ("pibt+", "lacam") and self.mode != "static":
             raise ValueError(
                 f"algo {self.algo!r} is a batch algorithm and only supports "
                 f"--mode static (fixed goals); got mode={self.mode!r}."

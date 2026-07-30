@@ -2,7 +2,7 @@ import random
 
 from core import Agent, Grid, Position, Simulation, StaticDispatcher, WorldEntity, Zone
 from algo import (
-    PIBTCoordinator, RandomWalkCoordinator, PIBTPlusCoordinator,
+    PIBTCoordinator, RandomWalkCoordinator, PIBTPlusCoordinator, LaCAMCoordinator,
     EasiestAllocator, RandomAllocator,
 )
 from mrta import (
@@ -16,6 +16,7 @@ COORDINATORS = {
     "pibt":   PIBTCoordinator,
     "random": RandomWalkCoordinator,
     "pibt+":  PIBTPlusCoordinator,
+    "lacam":  LaCAMCoordinator,
 }
 
 
