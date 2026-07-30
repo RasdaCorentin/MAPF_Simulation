@@ -3,9 +3,12 @@ PIBTCoordinator — Priority Inheritance with Backtracking
 Okumura et al., 2022.
 
 PIBT is split into focused classes: reservations live in
-ReservationTable, priorities in PriorityManager. The recursive core
-(_pibt / _h) receives `grid` as an argument instead of storing it, so
-no per-step grid state lives on the coordinator.
+ReservationTable, priorities in PriorityManager, and the recursive core
+(Algorithm 1) lives in pibt_core.run_pibt_pass — shared with LaCAM's
+low level, which needs to pre-seed a fixed reservation before a pass
+and have it survive. PIBTCoordinator itself is a thin per-tick wrapper:
+goal/priority bookkeeping plus one unconstrained call into the shared
+core.
 
 Goals and base priorities are read from the tick's DispatchIntent
 (passed to plan()), never set by external mutation. The coordinator is
@@ -30,9 +33,7 @@ from core import Position, Coordinator, Agent, Grid, PlanResult, DispatchIntent
 
 from .reservation_table import ReservationTable
 from .priority_manager import PriorityManager
-
-DIRS    = [Position(0, -1), Position(0, 1), Position(-1, 0), Position(1, 0)]
-EPSILON = 1e-3
+from .pibt_core import run_pibt_pass
 
 
 class PIBTCoordinator(Coordinator):
@@ -50,8 +51,6 @@ class PIBTCoordinator(Coordinator):
         self.goals: dict[Agent, Position] = {}
         self._reservations = ReservationTable()
         self._priorities = PriorityManager()
-        self._processed: set[Agent] = set()
-        self._inheritance: list[tuple[Agent, Agent]] = []
         # Last (goal, priority) seen per agent_id — used to re-seed the base
         # priority ONLY when the allocation intent actually changes, so the
         # dynamic priority drift (anti-starvation) is never clobbered.
@@ -59,83 +58,6 @@ class PIBTCoordinator(Coordinator):
         # Base priority overwritten by the goal-reached -inf demotion, kept so
         # the demotion can be undone when the agent is no longer at its goal.
         self._demoted: dict[Agent, float] = {}
-        # Base priority overwritten by a priority-inheritance boost this tick,
-        # kept so it can be undone once this tick's cascade is resolved.
-        self._inherited: dict[Agent, float] = {}
-
-    # ── Heuristic ────────────────────────────────────────────────────────────
-
-    def _h(self, pos: Position, agent: Agent, grid: Grid) -> int:
-        """Input: a candidate position, the agent it is evaluated for,
-        and the grid.
-        Output: Manhattan distance from pos to the agent's goal.
-        """
-        g = self.goals[agent]
-        return abs(pos.x - g.x) + abs(pos.y - g.y)
-
-    # ── Recursive PIBT algorithm (Algorithm 1) ───────────────────────────────
-
-    def _pibt(self, agent: Agent, parent: Optional[Agent], grid: Grid) -> bool:
-        """Input: the agent being placed, its pusher (None at top level),
-        and the grid.
-        Output: True if a valid next cell was reserved for the agent.
-        """
-        candidates: list[Position] = []
-        for d in DIRS:
-            v = agent.position + d
-            if grid.is_valid(v) and not any(
-                e.blocks_movement and e.active
-                for e in grid.get_entities_at(v)
-                if not isinstance(e, Agent)
-            ):
-                candidates.append(v)
-        candidates.sort(key=lambda v: self._h(v, agent, grid))
-
-        # An agent already at its goal prefers to stay in place
-        if agent.position == self.goals.get(agent):
-            candidates.insert(0, agent.position)
-
-        if parent is not None:
-            candidates = [v for v in candidates if v != parent.position]
-
-        for v in candidates:
-            # Staying in place: always valid if no other agent has reserved the cell
-            if v == agent.position:
-                reserving = self._reservations.get_reserving_agent(v)
-                if reserving is None or reserving == agent:
-                    self._reservations.reserve(agent, v)
-                    return True
-                continue
-
-            reserving = self._reservations.get_reserving_agent(v)
-            if reserving is not None and reserving != agent:
-                continue
-
-            occupant = grid.get_agent_at(v)
-
-            # Anti-recursion guard: only recurse into an occupant if sigma(occupant)
-            # is still undefined (occupant has not reserved a cell yet). An
-            # occupant that already reserved a cell will free its current one.
-            # Checking _processed here (updated only AFTER return) would
-            # re-enter agents still on the call stack -> infinite recursion
-            # on cycles (rotations).
-            if occupant is not None and self._reservations.get_reservation(occupant) is None:
-                self._reservations.reserve(agent, v)
-                self._inherited.setdefault(occupant, self._priorities.get_base(occupant))
-                self._priorities.set_base(occupant, self._priorities.get_priority(agent) + EPSILON)
-                if not self._pibt(occupant, agent, grid):
-                    self._reservations.release(agent)
-                    continue
-                self._processed.add(occupant)
-                self._inheritance.append((agent, occupant))
-                return True
-
-            if occupant is None or self._reservations.get_reservation(occupant) is not None:
-                self._reservations.reserve(agent, v)
-                return True
-
-        self._reservations.reserve(agent, agent.position)
-        return False
 
     # ── Interface Coordinator ─────────────────────────────────────────────────
 
@@ -186,16 +108,12 @@ class PIBTCoordinator(Coordinator):
                 self._priorities.set_base(agent, self._demoted.pop(agent))
 
         self._reservations.clear()
-        self._processed.clear()
-        self._inheritance.clear()
-        self._inherited.clear()
 
         ordered = sorted(agents, key=lambda a: -self._priorities.get_priority(a))
 
-        for agent in ordered:
-            if agent not in self._processed:
-                self._pibt(agent, None, grid)
-                self._processed.add(agent)
+        inheritance, inherited = run_pibt_pass(
+            grid, self.goals, self._priorities, self._reservations, ordered,
+        )
 
         positions: dict[int, Position] = {}
         for a in agents:
@@ -206,13 +124,13 @@ class PIBTCoordinator(Coordinator):
             positions=positions,
             moves={a.agent_id: (a.position, positions[a.agent_id]) for a in agents},
             order=[a.agent_id for a in ordered],
-            inheritance=[(p.agent_id, q.agent_id) for p, q in self._inheritance],
+            inheritance=[(p.agent_id, q.agent_id) for p, q in inheritance],
             priorities={a.agent_id: self._priorities.get_priority(a) for a in agents},
         )
 
         # Inheritance boosts are scoped to this tick's cascade: undo them now
         # so an agent pushed once does not keep outranking its pusher forever.
-        for agent, base in self._inherited.items():
+        for agent, base in inherited.items():
             self._priorities.set_base(agent, base)
 
         return result
