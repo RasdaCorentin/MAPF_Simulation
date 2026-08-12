@@ -11,9 +11,10 @@ Grids (2000 × 2000 mm arena):
     8×8  — 250 mm cells
 
 Usage:
-    python sim_many_pibt.py                  # full sweep, 30 seeds
-    python sim_many_pibt.py --seeds 5        # quick smoke-test
-    python sim_many_pibt.py --out my.csv     # custom output file
+    python sim_many_pibt.py                                     # full sweep, 30 seeds
+    python sim_many_pibt.py --seeds 5                           # quick smoke-test
+    python sim_many_pibt.py --out my.csv                        # custom output file
+    python sim_many_pibt.py --goal-reached-policy permanent     # static-goal heuristic
 """
 
 import time
@@ -23,7 +24,7 @@ import argparse
 from collections import defaultdict
 
 from core import Simulation, Agent, Grid, Position, StaticDispatcher
-from algo import PIBTCoordinator
+from algo import PIBTCoordinator, GoalReachedPolicy
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,11 @@ ARENA_MM  = 2000
 MAX_STEPS = 100
 N_SEEDS   = 30
 OUTPUT    = "sim_results.csv"
+# All goals here are drawn once and never move, so PERMANENT is a legitimate
+# choice for this sweep — but it is not the default: sim_many_pibt.py's
+# baseline numbers must stay comparable to every run taken before this
+# option existed, which all used the coordinator's TRANSIENT default.
+GOAL_REACHED_POLICY = GoalReachedPolicy.TRANSIENT
 
 # ── Scenario generator ────────────────────────────────────────────────────────
 
@@ -58,7 +64,10 @@ def make_scenario(grid_w: int, grid_h: int, n: int, seed: int):
 def _manhattan(a: Position, b: Position) -> int:
     return abs(a.x - b.x) + abs(a.y - b.y)
 
-def run_instance(gw: int, gh: int, n: int, seed: int) -> dict:
+def run_instance(
+    gw: int, gh: int, n: int, seed: int,
+    goal_reached_policy: GoalReachedPolicy = GOAL_REACHED_POLICY,
+) -> dict:
     starts, goals_pos = make_scenario(gw, gh, n, seed)
 
     agents   = [Agent(i, Position(*s)) for i, s in enumerate(starts)]
@@ -67,9 +76,11 @@ def run_instance(gw: int, gh: int, n: int, seed: int) -> dict:
 
     # Goals flow through the DispatchIntent pipeline: fixed goals keyed by
     # agent_id (int), injected via a StaticDispatcher — the coordinator itself
-    # holds no allocation state.
+    # holds no allocation state. Goals are fixed for the run's lifetime here,
+    # which is exactly the regime goal_reached_policy is about: this sweep is
+    # the caller that knows it, so it is the one passing the policy in.
     goals_by_id = {i: Position(*goals_pos[i]) for i in range(n)}
-    pibt        = PIBTCoordinator()
+    pibt        = PIBTCoordinator(goal_reached_policy=goal_reached_policy)
     dispatcher  = StaticDispatcher(goals=goals_by_id)
     sim         = Simulation(Grid(gw, gh), coordinator=pibt, dispatcher=dispatcher)
     for a in agents:
@@ -112,7 +123,10 @@ def run_instance(gw: int, gh: int, n: int, seed: int) -> dict:
 
 # ── Sweep ─────────────────────────────────────────────────────────────────────
 
-def run_sweep(seeds: list[int], output: str) -> None:
+def run_sweep(
+    seeds: list[int], output: str,
+    goal_reached_policy: GoalReachedPolicy = GOAL_REACHED_POLICY,
+) -> None:
     rows = []
 
     for (gw, gh) in GRIDS:
@@ -126,7 +140,7 @@ def run_sweep(seeds: list[int], output: str) -> None:
             seed_results = []
             for seed in seeds:
                 try:
-                    r = run_instance(gw, gh, n, seed)
+                    r = run_instance(gw, gh, n, seed, goal_reached_policy)
                     seed_results.append(r)
                     rows.append({
                         "grid_w":      gw,
@@ -213,10 +227,26 @@ def _parse_args():
                         help=f"number of seeds per (grid, N) cell (default: {N_SEEDS})")
     parser.add_argument("--out",   type=str, default=OUTPUT,
                         help=f"output CSV file (default: {OUTPUT})")
+    parser.add_argument(
+        "--goal-reached-policy", type=str, choices=["transient", "permanent"],
+        default=GOAL_REACHED_POLICY.value,
+        help=(
+            "goal-reached -inf demotion policy for the whole campaign "
+            "(default: %(default)s). 'transient' undoes the demotion as soon "
+            "as an agent leaves its goal — required once goals rotate "
+            "(MRTA). 'permanent' never undoes it, reproducing the "
+            "pre-c81534e behaviour — measurably better here since this "
+            "sweep's goals are static for the run's lifetime."
+        ),
+    )
     return parser.parse_args()
 
 if __name__ == "__main__":
-    args  = _parse_args()
-    seeds = list(range(args.seeds))
-    print(f"L0 sweep — {len(GRIDS)} grids, seeds 0…{args.seeds-1}, max_steps={MAX_STEPS}")
-    run_sweep(seeds, args.out)
+    args   = _parse_args()
+    seeds  = list(range(args.seeds))
+    policy = GoalReachedPolicy(args.goal_reached_policy)
+    print(
+        f"L0 sweep — {len(GRIDS)} grids, seeds 0…{args.seeds-1}, max_steps={MAX_STEPS}, "
+        f"goal_reached_policy={policy.value}"
+    )
+    run_sweep(seeds, args.out, policy)
