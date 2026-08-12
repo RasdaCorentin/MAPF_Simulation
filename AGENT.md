@@ -224,7 +224,7 @@ break it. When in doubt, the class diagram arbitrates.
 | Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
 | Plans are validated, not rolled back | `Simulation._validate()` rejects an inapplicable `PlanResult` **before** any mutation, so the lift/place transaction cannot fail partially |
 | Task identity belongs to the registry | `FleetManager` stamps `task_id` at intake; sources propose tasks without one, so several sources cannot collide (`Task` hashes on `task_id`) |
-| `-inf` demotion is reversible | "at its goal" is a *state*; `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding |
+| `-inf` demotion is reversible by default | "at its goal" is a *state*; under `GoalReachedPolicy.TRANSIENT` (the default) `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding. `PERMANENT`, chosen by the caller at construction for a static goal regime, deliberately never restores it |
 | Snapshots are projections | `TaskView`/`ZoneView`/`StepSnapshot` copy values and key on `agent_id`; a snapshot must read identically N steps later |
 | Allocation stays inside the seed | `EasiestAllocator` draws no random numbers; `RandomAllocator` owns its RNG — a `RunRecord` storing a seed can deliver on it |
 | No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |

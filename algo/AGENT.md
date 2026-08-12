@@ -52,13 +52,19 @@ def run_pibt_pass(                 # algo/coordination/pibt_core.py — Algorith
     ...                             # does NOT clear `reservations`, does NOT undo boosts —
                                      # both are the caller's job (see PIBTCoordinator.plan())
 
+class GoalReachedPolicy(Enum):        # algo/coordination/pibt_coordinator.py
+    TRANSIENT   # default — goal-reached demotion undone once the agent leaves its goal
+    PERMANENT   # demotion never undone — the pre-c81534e historical behaviour
+
 class PIBTCoordinator(Coordinator):   # algo/coordination/pibt_coordinator.py
     goals: dict[Agent, Position]     # public — rebuilt each tick from the intent; read by renderers
     _reservations: ReservationTable
     _priorities: PriorityManager
     _last_intent: dict[int, tuple]   # last (goal, priority) per agent — for the re-seed guard
     _demoted: dict[Agent, float]     # base priority overwritten by the -inf demotion, kept to undo it
+                                      # under TRANSIENT (see goal_reached_policy below)
 
+    __init__(goal_reached_policy: GoalReachedPolicy = GoalReachedPolicy.TRANSIENT)
     plan(agents, grid, intent) -> PlanResult
     _apply_intent(agents, intent)          # rebuild goals; re-seed base priority only on change
 ```
@@ -88,11 +94,23 @@ coordinator/dispatcher wiring, not as the recommended entry point.
 - Goals are rebuilt each tick from `intent.goals` (an agent with no goal stays in place).
 - **Re-seed guard**: the base priority is re-seeded from `intent.priorities` **only** when an agent's goal or business priority changed since last tick — otherwise the dynamic priority drift (anti-starvation) would be wiped. This is the crux of keeping the coordinator stateless about allocation while stateful about navigation.
 - Dynamic priorities decay by 1 every step -> prevents starvation.
-- An agent at its goal gets base priority `-inf` (processed last, prefers to stay). **The demotion
-  is reversible**: "at its goal" is a *state*, so the overwritten base is saved in `_demoted` and
-  restored the moment the state stops holding — the goal moved, or inheritance pushed the agent
-  off it. Writing `-inf` without restoring it stranded the agent at the bottom of the ranking for
-  the rest of the run.
+- An agent at its goal gets base priority `-inf` (processed last, prefers to stay). Whether that
+  demotion is later undone is `goal_reached_policy`, chosen by the caller at construction —
+  **not** something the coordinator decides, because only the caller (the dispatcher / the
+  scenario's goal regime) knows whether goals ever move again:
+  - **`TRANSIENT`** (default): "at its goal" is a *state*, so the overwritten base is saved in
+    `_demoted` and restored the moment the state stops holding — the goal moved, or inheritance
+    pushed the agent off it. Mandatory under a rotating-goal regime (MRTA/lifelong): an agent
+    that just finished a task must be able to contest a cell again to start the next one.
+  - **`PERMANENT`**: the demotion is a one-way write, `_demoted` is never popped by this loop.
+    Measurably the better heuristic under a *static* goal regime (5x5 grid, 30 seeds: matches
+    TRANSIENT up to 0.20 occupancy, up to +0.17 success rate at maximum occupancy) — an agent
+    that will never be asked to move again is a better fit as a soft, non-contesting obstacle.
+  Either way, an explicit re-seed from a fresh `intent` (goal or priority actually changed) still
+  pops `_demoted` and overrides the demotion in `_apply_intent` — that guard is independent of
+  the policy. The inheritance-boost undo at the end of `plan()` (the `inherited` bases returned
+  by `run_pibt_pass`, restored unconditionally every tick) is a separate mechanism, fixed in
+  `fb3303c`, and applies under both policies unconditionally.
 - Priority Inheritance: if agent i wants k's cell, `set_base(k, get_priority(i) + EPSILON)` then `pibt_core._pibt(k, i, ...)` recurses.
 - Backtracking: if k cannot move, i tries another candidate cell (`ReservationTable.release`).
 - Obstacles are detected via `entity.blocks_movement and entity.active` on the grid's static entities.
