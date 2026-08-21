@@ -8,47 +8,23 @@
 '  relations stay plain readable PlantUML.
 '
 '  PACKAGE DEPENDENCIES (DAG, no cycle):
-'    mrta             -> core
-'    algo             -> core, mrta          (concrete implementations)
-'    client.control   -> core, algo, mrta    (composition root: resolves algo + dispatcher)
-'    client.view      -> core, mrta          (VALUE types only: Position, TaskState)
-'    client.frontends -> client.view, client.control (SimulationDriver ONLY)
-'  mrta NEVER imports algo or client.
-'  client.frontends NEVER imports algo, nor any mrta BEHAVIOUR (FleetManager,
-'  Allocator, TaskSource) — it only ever sees frozen values.
+'    mrta -> core
+'    algo -> core, mrta          (concrete implementations)
+'  mrta NEVER imports algo.
 '
-'  SimulationDriver carries the four verbs and nothing else: no handle on a
-'  live object crosses it, so hit-testing reads StepSnapshot like everything
-'  else does. The engine handles (sim, fleet, queue) stay on the concrete
-'  SimulationController, which nothing outside client.control names.
-'  A frontend still uses core VALUE types — it builds a Position from a click
-'  to call send_batch_to — exactly as client.view uses TaskState. Depending on
-'  a value is not depending on behaviour.
+'  There is currently no package above algo/mrta: the scripting layer that
+'  used to sit here (client/) and the measurement layer built on it
+'  (report/) were removed together — see TODO.md for what wiring a
+'  Simulation now takes, and the project's own notes for why a
+'  replacement was not simply reintroduced under another name.
 '
-'  LAYOUT — two rules, both about where the reader's eye should land.
-'
-'  1. Notes are declared INSIDE the package of the class they annotate,
-'     immediately after that class. A note declared at the bottom of the
-'     file is a free node as far as dot is concerned: it gets no cluster,
-'     so it drifts to whatever margin is cheapest and its anchor line
-'     crosses the page. Declared in the cluster, it is laid out WITH the
-'     class it belongs to, which is the only reliable way to keep the two
-'     side by side.
-'
-'  2. The diagram is organised around SimulationController, not around
-'     core. It is the most connected class in the project — the
-'     composition root, wired to core, mrta, algo and client.view at
-'     once — whereas core is merely what everything depends ON, which
-'     is not the same thing as what the reader should start from.
-'     Two changes carry this: client.control is declared in the middle
-'     of the package list, and two hidden edges near the bottom of this
-'     file pin the rank Simulation | SimulationController | FleetManager.
-'     The factory's edges into the concrete algorithms are deliberately
-'     NOT drawn. They are real — factory.py imports PIBTCoordinator,
-'     RandomWalkCoordinator and RandomAllocator by name — but they cross
-'     three packages and cost more in edge crossings than they buy in
-'     insight. The note on SimulationController states in words what
-'     those edges would have shown.
+'  LAYOUT — Notes are declared INSIDE the package of the class they
+'  annotate, immediately after that class. A note declared at the bottom
+'  of the file is a free node as far as dot is concerned: it gets no
+'  cluster, so it drifts to whatever margin is cheapest and its anchor
+'  line crosses the page. Declared in the cluster, it is laid out WITH
+'  the class it belongs to, which is the only reliable way to keep the
+'  two side by side.
 ' =====================================================================
 
 skinparam classAttributeIconSize 0
@@ -400,202 +376,13 @@ package "algo" #F0FFF0 {
     }
 }
 
-' =====================================================================
-'  client · control — PART 1: the scripting API and composition root.
-'  Declared here, between what it is built from and what is built on
-'  it, so the most connected class of the project lands in the middle.
-' =====================================================================
-package "client · control" #FFF5EA {
-    class ScenarioConfig $st("value object") {
-        + width        : int = 15
-        + height       : int = 15
-        + agents       : int = 20
-        + obstacles    : int = 0
-        + algo         : str = "pibt"
-        + allocator    : str = "easiest"
-        + mode         : str = "mrta"
-        + seed         : int = 0
-        + tasks        : str = "none"
-        + task_every   : int = 5
-        + task_count   : int = 2
-        + patience     : int = 12
-        + max_attempts : int = 3
-        + zones        : tuple[Zone] = ()
-    }
-
-    class factory $st("Factory") {
-        + {static} build(config: ScenarioConfig) : SimulationController
-    }
-
-    abstract class SimulationDriver $st("Strategy") {
-        + {abstract} step() : StepSnapshot
-        + {abstract} run(steps: int) : list[StepSnapshot]
-        + {abstract} snapshot() : StepSnapshot
-        + {abstract} send_batch_to(target: Position, agent_ids, priority: float, within) : list[Task]
-    }
-    !if $ANNOTATED == 1
-    note left of SimulationDriver
-      **The whole contract between the display and the engine**
-      Four verbs, and no handle on anything live: advance a step, run
-      several, ask for the current picture, send a batch somewhere.
-      A display can therefore be handed the real controller or a
-      measuring wrapper (``main.py --log``) without being able to tell
-      the difference — and cannot reach past this line to steer the
-      simulation itself.
-    end note
-    !endif
-
-    class SimulationController $st("Facade") {
-        + sim   : Simulation
-        + fleet : FleetManager | None
-        + queue : QueueTaskSource | None
-        --
-        + step() : StepSnapshot
-        + run(steps: int) : list[StepSnapshot]
-        + send_batch_to(target: Position, agent_ids, priority: float, within) : list[Task]
-        + snapshot() : StepSnapshot
-    }
-    !if $ANNOTATED == 1
-    note top of SimulationController
-      **The way in — for a window, a script or a benchmark**
-      Builds one simulation and exposes the four verbs a driver needs:
-      step, run, snapshot and send_batch_to.
-      "Send these robots over there" steers no one: send_batch_to mints
-      tasks and pushes them to the queue, so a manual order takes the
-      exact same path as generated work —
-        click -> queue -> FleetManager -> DispatchIntent -> Coordinator
-      and inherits collision avoidance for free. Nothing in the project
-      bypasses the planner.
-      ``within`` says where those jobs may land, so "send them to the
-      loading station" means the station itself and not the aisle next
-      to it once the station is full.
-      With the factory beside it, this is the composition root: the
-      only place that names a concrete algorithm or allocator, which is
-      what lets everything downstream stay ignorant of both.
-    end note
-    !endif
-}
-
-' =====================================================================
-'  client · view — the frozen values a frontend is allowed to see
-' =====================================================================
-package "client · view" #FFF5EA {
-    class TaskView $st("value object") {
-        + task_id      : int
-        + target       : Position
-        + state        : TaskState
-        + priority     : float
-        + assignee_id  : int | None
-        + attempts     : int
-        + created_step : int
-        --
-        + {static} of(task: Task) : TaskView
-    }
-    !if $ANNOTATED == 1
-    note right of TaskView
-      **A snapshot must hold values, never live objects**
-      A Task keeps changing (ASSIGNED -> DONE) and is eventually
-      discarded by the fleet. A frontend that stored the Task itself
-      would watch its own history rewrite as the run went on, and could
-      read an agent's *current* position from a frame describing the
-      past.
-      TaskView is a frozen copy with the assignee reduced to its id —
-      the same rule PlanResult follows by keying on agent ids rather
-      than exposing Agent objects.
-    end note
-    !endif
-
-    class ZoneView $st("value object") {
-        + name  : str
-        + cells : tuple[Position]
-        --
-        + {static} of(zone: Zone) : ZoneView
-    }
-
-    class StepSnapshot $st("DTO") {
-        + step         : int
-        + result       : PlanResult
-        + goals        : dict[int, Position]
-        + objects      : tuple
-        + tasks        : tuple[TaskView]
-        + zones        : tuple[ZoneView]
-        + width        : int
-        + height       : int
-        + accepts_tasks : bool
-        + completed    : int
-        + failed       : int
-        --
-        + counts() : dict[str, int]
-    }
-    !if $ANNOTATED == 1
-    note bottom of StepSnapshot
-      **One frame of the run, frozen**
-      Everything the display needs to draw a step and to resolve a
-      click on it — board size, robots, jobs, zones. It is a copy, so
-      it stays readable long after the engine has moved on, which is
-      what lets the window replay the past while the run continues.
-    end note
-    !endif
-}
-
-' =====================================================================
-'  client · frontends — PART 2: presentation only
-' =====================================================================
-package "client · frontends" #FFF5EA {
-    abstract class Frontend $st("Strategy") {
-        + controller : SimulationDriver
-        --
-        + {abstract} run(steps: int) : void
-    }
-    !if $ANNOTATED == 1
-    note top of Frontend
-      **Presentation — it displays and it asks, nothing more**
-      A frontend reads snapshots and calls the four verbs. It knows no
-      algorithm, no allocation, and holds nothing live — not the grid,
-      not the fleet — so adding one (web, ROS bridge, ...) changes
-      nothing anywhere else.
-      PygameFrontend is the interactive window: select robots, click a
-      cell or a zone button to send them there. It also owns the clock
-      — the engine only ever advances one step when asked.
-    end note
-    !endif
-
-    class PygameFrontend {
-        + tick_ms   : int
-        + selection : set[int]
-        + history   : list[StepSnapshot]
-        + playing   : bool
-        --
-        + run(steps: int) : void
-    }
-
-    class Sidebar {
-        + buttons : dict[str, Rect]
-        --
-        + draw(screen, origin_x, snap, selection, ...) : void
-        + hit(position, origin_x) : str | None
-    }
-    !if $ANNOTATED == 1
-    note bottom of Sidebar
-      **Buttons come from the run, not from the code**
-      Besides the transport controls, the panel draws one button per
-      zone it finds in the snapshot. Declaring a fourth zone gives a
-      fourth button with nothing to change here.
-    end note
-    !endif
-
-    class HeadlessFrontend {
-        + run(steps: int) : void
-    }
-}
-
 ' ── Diamond convention ────────────────────────────────────────────
 ' One rule, applied throughout, so the diamonds carry information
 ' instead of being decided case by case:
 '
 '   filled  (*--)  an IMMUTABLE value, held by value — sharing the same
 '                  instance is meaningless, so ownership is moot
-'                  (Position, DispatchIntent, PlanResult, TaskView) —
+'                  (Position, DispatchIntent, PlanResult) —
 '                  or a MUTABLE object with a single, exclusive owner
 '                  (Simulation's entities, FleetManager's tasks).
 '   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
@@ -623,9 +410,10 @@ Zone "1" *-- "1..*" Position : cells
 Grid "1" o-- "0..*" WorldEntity : "> index"
 
 ' ── Engine: simulation loop ───────────────────────────────────────
-' Aggregation: the factory builds the Grid and hands the same instance
-' to Simulation and to RandomTaskSource, which reads it to find free
-' cells. Simulation drives the grid; it does not own it exclusively.
+' Aggregation: whatever builds the scenario hands the same Grid
+' instance to Simulation and to RandomTaskSource, which reads it to
+' find free cells. Simulation drives the grid; it does not own it
+' exclusively.
 Simulation "1" o-- "1" Grid           : grid
 Simulation "1" *-- "0..*" WorldEntity : entities
 Simulation "1" o-- "1" Coordinator    : coordinator
@@ -641,31 +429,6 @@ Coordinator <|.. PIBTCoordinator
 ' ── PIBT decomposition (Extract-Class) ────────────────────────────
 PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
 PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
-
-' ── Client PART 1: the scripting API (composition root) ───────────
-factory ..> ScenarioConfig       : «reads»
-factory ..> SimulationController : «creates»
-factory ..> FleetManager         : «wires»
-SimulationDriver <|.. SimulationController
-SimulationController "1" o-- "1" Simulation         : sim
-SimulationController "1" o-- "0..1" FleetManager    : fleet (MRTA mode)
-SimulationController "1" o-- "0..1" QueueTaskSource : queue (MRTA mode)
-SimulationController ..> StepSnapshot : «builds»
-SimulationController ..> TaskView    : «projects Task ->»
-SimulationController ..> ZoneView    : «projects Zone ->»
-StepSnapshot "1" *-- "1" PlanResult  : result
-StepSnapshot "1" *-- "0..*" TaskView : tasks
-StepSnapshot "1" *-- "0..*" ZoneView : zones
-
-' ── Client PART 2: front-ends, decoupled from algo & mrta ─────────
-' The frontend depends on the INTERFACE, not on the controller class:
-' with --log it is handed a RunCollector (see the report diagram).
-Frontend "1" o-- "1" SimulationDriver : controller
-Frontend <|.. PygameFrontend
-Frontend <|.. HeadlessFrontend
-Frontend ..> StepSnapshot : «reads»
-PygameFrontend ..> Sidebar : «draws»
-PygameFrontend "1" *-- "0..*" StepSnapshot : history (replay)
 
 ' ── MRTA ──────────────────────────────────────────────────────────
 Task "1" *-- "1" TaskState : state
@@ -686,19 +449,13 @@ FleetManager "1" o-- "1" TaskSource : source
 FleetManager "1" o-- "1" Allocator  : allocator
 FleetManager "1" *-- "0..*" Task    : tasks
 
-' ── Layout constraint: put the composition root in the middle ─────
+' ── Layout constraint: keep the engine and the fleet adjacent ─────
 ' Declaration order alone is a weak hint — dot re-orders clusters
-' freely. These hidden edges pin one rank, left to right: the grid, the
-' engine that advances it, the controller that drives the engine, and
-' the fleet that feeds it goals. That lands client.control at the centre
-' of the page and pushes core, which everything merely depends ON, out
-' to the side where a foundation belongs.
-' The Grid anchor is not decorative: without it dot is free to swing
-' core around client.control, which it did in the simple rendering —
-' the two diagrams then disagreed about where each package lives.
+' freely. This hidden edge pins one rank, left to right: the grid, the
+' engine that advances it, and the fleet that feeds it goals — so core
+' and mrta land side by side instead of dot picking an arbitrary order.
 Grid -[hidden]right- Simulation
-Simulation -[hidden]right- SimulationController
-SimulationController -[hidden]right- FleetManager
+Simulation -[hidden]right- FleetManager
 
 ' =====================================================================
 '  Page-level legend — the 30-second read, annotated rendering only.
@@ -713,6 +470,7 @@ legend bottom left
     **core**   the world (grid, agents) and the tick that advances it
     **mrta**   Multi-Robot Task Allocation — who does what
     **algo**   the interchangeable algorithms plugged into core
-    **client** how a human or a script drives and watches a run
+  There is currently no supported way to drive or watch a run end to
+  end — see TODO.md.
 end legend
 !endif
