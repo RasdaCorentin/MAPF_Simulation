@@ -1,0 +1,171 @@
+@startuml class_diag_simplified
+
+title Simulation — Simplified class diagram
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam ArrowColor #333333
+skinparam ClassBorderColor #4A90D9
+skinparam ClassBackgroundColor #EAF4FF
+skinparam ClassHeaderBackgroundColor #4A90D9
+skinparam ClassHeaderFontColor #FFFFFF
+skinparam PackageBorderColor #888888
+skinparam PackageBackgroundColor #F8F8F8
+
+package "core" #EAF4FF {
+
+    package "entities" {
+        class Position {
+            + x : int
+            + y : int
+            --
+            + __add__(other: Position) : Position
+        }
+
+        abstract class WorldEntity {
+            + entity_id       : int
+            + position        : Position
+            + appear_at       : int
+            + blocks_movement : bool
+            --
+            + active : bool
+        }
+
+        class Agent {
+            + agent_id    : int
+            + steps_taken : int
+            --
+            + move_to(new_position: Position) : void
+        }
+
+        class Zone {
+            + name  : str
+            + cells : tuple[Position]
+            --
+            + contains(position: Position) : bool
+        }
+    }
+
+    package "environment" {
+        class Grid {
+            + width  : int
+            + height : int
+            --
+            + is_valid(position: Position) : bool
+            + is_blocked(position: Position) : bool
+            + place(entity: WorldEntity) : void
+            + remove(entity: WorldEntity) : void
+            + get_agent_at(position: Position) : Agent | None
+        }
+    }
+
+    package "engine" {
+        class Simulation {
+            + grid         : Grid
+            + agents       : list[Agent]
+            + coordinator  : Coordinator
+            + dispatcher   : Dispatcher | None
+            + current_step : int
+            --
+            + add_agent(agent: Agent) : void
+            + add_object(entity: WorldEntity) : void
+            + step() : PlanResult
+        }
+
+        abstract class Coordinator {
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        }
+
+        abstract class Dispatcher {
+            + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        }
+    }
+}
+
+package "mrta" #FFF0F5 {
+
+    enum TaskState {
+        PENDING
+        ASSIGNED
+        DONE
+        FAILED
+    }
+
+    class Task {
+        + task_id  : int
+        + target   : Position
+        + priority : float
+        + state    : TaskState
+        + assignee : Agent | None
+    }
+
+    abstract class TaskSource {
+        + poll(current_step: int) : list[Task]
+    }
+
+    abstract class Allocator {
+        + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
+    }
+
+    class FleetManager {
+        + source    : TaskSource
+        + allocator : Allocator
+        + tasks     : list[Task]
+        --
+        + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+    }
+}
+
+package "algo" #F0FFF0 {
+
+    package "coordination" {
+        class RandomWalkCoordinator {
+            --
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        }
+
+        class PIBTCoordinator {
+            + goals : dict[Agent, Position]
+            --
+            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        }
+    }
+
+    package "allocation" {
+        class RandomAllocator {
+            --
+            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
+        }
+
+        class EasiestAllocator {
+            --
+            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
+        }
+    }
+}
+
+' ── Simplified High-Level Relations ─────────────────────────────
+
+WorldEntity <|-- Agent
+WorldEntity <|-- Zone
+WorldEntity *-- Position
+Grid o-- WorldEntity
+Simulation *-- Grid
+Simulation *-- Agent
+Simulation *-- Coordinator
+Simulation *-- Dispatcher
+
+Task *-- TaskState
+
+Coordinator <|-- RandomWalkCoordinator
+Coordinator <|-- PIBTCoordinator
+
+Allocator <|-- RandomAllocator
+Allocator <|-- EasiestAllocator
+
+Dispatcher <|-- FleetManager
+FleetManager o-- TaskSource
+FleetManager o-- Allocator
+FleetManager *-- Task
+
+@enduml
