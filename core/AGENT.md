@@ -5,9 +5,9 @@
 > repeated here. Read it first.
 
 `core/` is the pure simulation engine: entities, the grid they live on, and the tick that
-moves them. It imports **nothing** from `client/`, `algo/` or `mrta/` — the dependency is
-strictly one-directional, which is what lets an algorithm or an allocator be swapped without
-the engine noticing.
+moves them. It imports **nothing** from `algo/` or `mrta/` — the dependency is strictly
+one-directional, which is what lets an algorithm or an allocator be swapped without the
+engine noticing.
 
 ### `Position` — `core/entities/position.py`
 ```python
@@ -113,13 +113,13 @@ class PlanResult:
     inheritance: list[tuple]           # (pusher_id, pushed_id)        (optional diagnostic)
     priorities:  dict[int, float]      # agent_id -> priority          (optional diagnostic)
 ```
-DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics, left empty outside the PIBT family. Keys are `agent_id` integers so it can cross the core -> client boundary without exposing `Agent` objects.
+DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics, left empty outside the PIBT family. Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
 
-**Frozen**, like every value crossing that boundary. The same instance is referenced by
-`SimulationController._last_result` *and* archived in a `StepSnapshot`; a snapshot is documented
-to read identically N steps later, so the guarantee rests on the type rather than on the
-convention that coordinators build the object whole and nobody writes to it afterwards. The
-contained dicts are not deep-frozen — this is a guard, not a proof.
+**Frozen**, like every value crossing a package boundary in this project: a caller can hold onto
+the object `Simulation.step()` returned without the engine being able to rewrite it later — the
+guarantee rests on the type rather than on the convention that coordinators build the object
+whole and nobody writes to it afterwards. The contained dicts are not deep-frozen — this is a
+guard, not a proof.
 
 ---
 

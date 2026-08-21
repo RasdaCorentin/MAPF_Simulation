@@ -3,7 +3,7 @@
 The agent guide for this project lives in @AGENT.md — read it first. It carries only the
 cross-cutting context (layout, dependency direction, rules, invariants); the class-by-class
 detail lives in a guide per package, which you read **on demand**, not up front:
-`core/AGENT.md`, `algo/AGENT.md`, `mrta/AGENT.md`, `client/AGENT.md`, `report/AGENT.md`.
+`core/AGENT.md`, `algo/AGENT.md`, `mrta/AGENT.md`, `diagrammes/AGENT.md`.
 
 ## Contributing rules
 

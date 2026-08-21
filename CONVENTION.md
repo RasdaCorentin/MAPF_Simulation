@@ -19,18 +19,12 @@ Folder and file names are in English.
 ├── AGENT.md             — full architecture reference for coding agents
 ├── CLAUDE.md            — pointer that imports AGENT.md
 ├── CONVENTION.md        — this file
+├── TODO.md              — known-broken entry points and why
 ├── core/                — pure simulation engine (entities, environment, engine)
 ├── algo/                — MAPF algorithms (coordination, allocation)
 ├── mrta/                — Multi-Robot Task Allocation
-├── client/              — presentation
-│   ├── control/         — scripting API, composition root (pygame-free)
-│   ├── view/            — frozen value types (TaskView, StepSnapshot)
-│   └── frontends/       — pygame and headless frontends
-├── diagrammes/          — PlantUML sources + generated PNGs (class, sequence,
-│                          object, and a dedicated one for report/)
-├── report/              — experiment log (RunRecord, sinks, collector)
-├── main.py              — CLI entry point
-├── demo_pibt.py         — legacy interactive PIBT demo entry point
+├── diagrammes/          — PlantUML sources + generated PNGs (class, component, object)
+├── main.py              — CLI entry point (currently broken, see TODO.md)
 └── sim_many_pibt.py     — headless benchmark sweep
 ```
 
@@ -64,7 +58,7 @@ type(scope)!: subject
   | `docs`     | documentation only                                  |
   | `test`     | adding or fixing tests                              |
   | `chore`    | tooling, dependencies, housekeeping                 |
-- **scope** *(optional)* — the affected area, e.g. `core`, `algo`, `mrta`, `client`.
+- **scope** *(optional)* — the affected area, e.g. `core`, `algo`, `mrta`, `diagrams`.
 - **`!`** *(optional)* — marks a breaking change, e.g. `refactor(core)!: ...`.
 - **subject** — short, imperative, no trailing period.
 

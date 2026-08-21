@@ -27,43 +27,37 @@ coordinator as goals.
 ```bash
 # (optional) virtual environment
 python -m venv .venv && source .venv/bin/activate
-
-pip install -r requirements.txt
 ```
 
-Then run one of the demos from the repository root:
+`main.py` is currently broken — it depended on `client.control`/`report`, both removed;
+see [`TODO.md`](TODO.md). Run one of the headless sweeps from the repository root instead:
 
 ```bash
-python demo_pibt.py       # interactive PIBT demo (5×5 grid)
-python demo_pibt.py -d    # same, but prints each step to the terminal (no window)
-python main.py            # random-walk demo (10×10 grid)
+python sim_many_pibt.py --seeds 2   # headless PIBT benchmark sweep
 ```
 
-In the interactive window: `Space` play/pause · `→` step forward · `←` step back ·
-`Q`/`Esc` quit. The footer shows, for each step, the priority order, every agent's
-move, and any priority inheritances that were triggered.
+No runtime dependencies are needed (`requirements.txt` is currently empty).
 
 ---
 
 ## How it fits together
 
-Four packages, with a strict one-way dependency flow:
+Three packages, with a strict one-way dependency flow:
 
 ```
-client ─┐
-        ├─► core ◄─── mrta ◄─── algo
-        └───────────────────────┘
+core ◄─── mrta ◄─── algo
 ```
 
 - **`core/`** — the pure engine, no rendering, no algorithm. Holds the world:
   `Position`, `WorldEntity`, `Agent`, `Grid`, the `Simulation` loop, and the
   `Coordinator` interface plus its `PlanResult` return type.
 - **`algo/`** — the algorithms. `coordination/` has PIBT and a random walk;
-  `allocation/` has the task allocators. Pure logic, never imports rendering.
+  `allocation/` has the task allocators. Pure logic, no I/O.
 - **`mrta/`** — task allocation: `Task`, `TaskSource`, `Allocator`, and `FleetManager`,
   which hands goals to the coordinator. Depends only on `core`.
-- **`client/`** — the pygame viewers. Read-only over the simulation; they display
-  what `core` produces and never reach into `algo`.
+
+There is currently nothing above these three — no scripting layer wires a scenario for you;
+see [`TODO.md`](TODO.md).
 
 The key handshake: `Simulation.step()` asks the coordinator to `plan()` and gets back a
 `PlanResult` (next positions + diagnostics). `FleetManager` and the coordinator share
@@ -84,9 +78,8 @@ For the visual overview, see the class diagram:
 | Change how tasks are matched to agents       | `algo/allocation/`                              |
 | Change the task lifecycle / dispatch loop    | `mrta/fleet_manager.py`                         |
 | Change the grid, entities, or the step loop  | `core/`                                          |
-| Change what the window draws                 | `client/`                                       |
-| Change a demo scenario                       | `demo_pibt.py`, `main.py`                       |
-| Update the class diagram                     | `diagrammes/diag_commente.puml` (+ `plantuml`)  |
+| Wire a scenario by hand (no scripting layer today) | `sim_many_pibt.py` for the shape           |
+| Update the class diagram                     | `diagrammes/diagrams.puml` (+ `plantuml`)       |
 
 ---
 

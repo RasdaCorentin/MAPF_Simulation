@@ -5,8 +5,8 @@
 > repeated here. Read it first.
 
 `algo/` decides *how they move* (coordination) and, given a filtered set of candidates, *who
-takes which job* (allocation). It depends on `core` and on `mrta`'s `Allocator`/`Task`, never
-on `client` — **algorithms never render**, and `algo/` never imports pygame.
+takes which job* (allocation). It depends on `core` and on `mrta`'s `Allocator`/`Task` —
+**algorithms are pure computation**, no rendering, no I/O.
 
 ### `RandomWalkCoordinator` — `algo/coordination/random_walk.py`
 ```python
@@ -25,8 +25,7 @@ PIBT is split across four pieces: reservations and priorities each live in their
 section below) — a caller other than `PIBTCoordinator` can pre-seed a fixed reservation
 before a pass and have it survive, which `PIBTCoordinator`'s own per-tick reset would
 otherwise wipe. `PIBTCoordinator` itself is a thin per-tick wrapper: goal/priority
-bookkeeping around one unconstrained call into the shared core. **Zero pygame dependency**
-— rendering lives in `client/`.
+bookkeeping around one unconstrained call into the shared core.
 
 ```python
 class ReservationTable:            # algo/coordination/reservation_table.py
@@ -86,9 +85,9 @@ sim.add_agent(a1)
 for _ in range(30):
     result = sim.step()      # PlanResult: positions + PIBT diagnostics
 ```
-To *watch* it instead, go through the scripting API — `client.control.build(ScenarioConfig(...))`
-then a `Frontend` — rather than driving `Simulation` by hand. This snippet exists to show the
-coordinator/dispatcher wiring, not as the recommended entry point.
+This snippet exists to show the coordinator/dispatcher wiring, not as a turnkey entry point —
+there is currently no scripting layer above `algo`/`mrta` (see `TODO.md`). `sim_many_pibt.py`
+wires a `Simulation` by hand the same way, at benchmark scale.
 
 **Internal mechanics:**
 - Goals are rebuilt each tick from `intent.goals` (an agent with no goal stays in place).
@@ -197,7 +196,7 @@ class MyAlgo(Coordinator):
         positions = {a.agent_id: intent.goals.get(a.agent_id, a.position) for a in agents}
         return PlanResult(positions=positions, moves={...})
 ```
-Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. For a dedicated overlay, create `client/my_algo_renderer.py` extending `Renderer`. If the new algorithm needs a constrained PIBT pass (a fixed next cell for one agent, the rest resolved around it), reuse `algo/coordination/pibt_core.run_pibt_pass` — see `LaCAMCoordinator._generate_successor` for the shape — rather than re-deriving Algorithm 1 again.
+Plug it in with a dispatcher that supplies the goals, e.g. `Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. If the new algorithm needs a constrained PIBT pass (a fixed next cell for one agent, the rest resolved around it), reuse `algo/coordination/pibt_core.run_pibt_pass` — see `LaCAMCoordinator._generate_successor` for the shape — rather than re-deriving Algorithm 1 again.
 
 ---
 
@@ -221,14 +220,13 @@ still free. Three decisions worth keeping:
   allocator its own notion of *reachable*, rival to the planner's. The task lifecycle refuses
   that on purpose: it observes absence of progress instead of proving reachability up front.
 - **Deterministic ties** (`(distance, agent_id)`, task order made total by `task_id`). It draws
-  no random numbers at all, so allocation stays *inside* the seed and a logged `RunRecord` is
-  worth comparing against another.
+  no random numbers at all, so allocation stays *inside* the seed and two runs of the same
+  scenario are comparable.
 
 **`RandomAllocator`** is the distance-blind baseline, kept to compare against. Its RNG is
 **owned** (`random.Random(seed)`), not the module-level global: drawing from the global one
 made two runs of the same `--seed` disagree — the scenario was reproducible, the allocation was
-not, and a `RunRecord` storing the seed promised a reproducibility it could not deliver.
-`seed=None` restores the unseeded behaviour explicitly, for whoever actually wants it.
+not. `seed=None` restores the unseeded behaviour explicitly, for whoever actually wants it.
 
 `KDTreeGreedyAllocator` is intentionally unimplemented: the indexing strategy (rebuild cost per
 dispatch cycle, tie-breaking, distance metric on a discrete grid) needs discussion first. It is

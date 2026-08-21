@@ -4,9 +4,9 @@
 > invariants and the diagrams — lives in the root [`AGENT.md`](../AGENT.md) and is **not**
 > repeated here. Read it first.
 
-`mrta/` decides *who does what*. It sits on `core` alone and never imports `algo` or
-`client`: allocation and navigation meet only through `DispatchIntent`, which is what lets
-any allocator run under any coordinator.
+`mrta/` decides *who does what*. It sits on `core` alone and never imports `algo`:
+allocation and navigation meet only through `DispatchIntent`, which is what lets any
+allocator run under any coordinator.
 
 ```python
 class TaskState(Enum):             # mrta/task.py

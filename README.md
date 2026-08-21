@@ -1,8 +1,13 @@
 # MAPF Simulation — PIBT
 
 A small **Multi-Agent Path Finding (MAPF)** simulator with a pluggable coordinator
-interface and an interactive `pygame` viewer. The flagship coordinator implements
-**PIBT** (Priority Inheritance with Backtracking).
+interface. The flagship coordinator implements **PIBT** (Priority Inheritance with
+Backtracking).
+
+> **Currently a library, not a runnable demo.** `main.py` and `sim_many_mrta.py` are
+> broken — see [`TODO.md`](TODO.md) — pending a deliberate redesign of how a caller is meant
+> to drive a scenario. `core/`, `algo/`, `mrta/` and the three static-mode `sim_many_*.py`
+> sweeps below are unaffected and work today.
 
 ![Class diagram](diagrammes/simulation_class_diagram_commente.png)
 
@@ -29,17 +34,12 @@ original authors.
 - **Task allocation** (`mrta/`): tasks with a full lifecycle (including failure and a
   progress watchdog), several task sources, an allocator interface, and a fleet
   manager that dispatches goals to the shared coordinator.
-- **Interactive fleet control**: select agents with the mouse and send a batch to a
-  destination — routed through task allocation, so it inherits collision avoidance
-  from the planner.
-- **Scripting API** (`client/control/`): build and drive a scenario in a few lines,
-  with no pygame involved.
 - Deferred spawns and impassable obstacles.
 
 ## Requirements
 
 - Python 3.10+ (developed on 3.14)
-- [pygame](https://www.pygame.org/) (see `requirements.txt`)
+- No runtime dependencies (`requirements.txt` is currently empty)
 
 ## Installation
 
@@ -47,69 +47,39 @@ original authors.
 # (optional) create a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-pip install -r requirements.txt
 ```
 
-## Running the demos
+## Running it
 
-Run from the repository root:
+`main.py` and `sim_many_mrta.py` are currently broken (see the note above and
+[`TODO.md`](TODO.md)). What works today, run from the repository root:
 
 ```bash
-python main.py                                  # 15×15, 20 agents, PIBT + task allocation
-python main.py --tasks random                   # same, self-generating background work
-python main.py --frontend headless --steps 20   # terminal output, no window
-python main.py --algo random --mode static      # the historical random-walk demo
-python demo_pibt.py                             # legacy PIBT demo (5×5 grid, navigable)
-python demo_pibt.py -d                          # terminal debug mode, no pygame window
+python sim_many_pibt.py --seeds 2               # headless PIBT benchmark sweep
+python sim_many_lacam.py --seeds 2              # same, LaCAM
+python sim_many_pibt_plus.py --seeds 2          # same, PIBT+
 ```
-
-Useful flags: `--width/--height`, `--agents`, `--obstacles`, `--algo {pibt,random}`,
-`--mode {mrta,static}`, `--tasks {none,random}`, `--seed`, `--tick-ms`.
-
-### Interactive controls
-
-Select agents, then click a destination — the batch is turned into tasks, allocated,
-and routed by the planner.
-
-| Input                  | Action                          |
-| ---------------------- | ------------------------------- |
-| click an agent         | toggle its selection            |
-| drag                   | rubber-band selection           |
-| click a cell           | send the selected batch there   |
-| `Space`                | play / pause                    |
-| `→`                    | step forward                    |
-| `←`                    | replay backwards                |
-| `A` / `C`              | select all / clear selection    |
-| `Q` / `Esc`            | quit                            |
 
 ## Project structure
 
 ```
-core/      pure simulation engine — entities/ (Position, WorldEntity, Agent),
-           environment/ (Grid), engine/ (Simulation, Coordinator, PlanResult)
-algo/      MAPF algorithms — coordination/ (PIBT, random walk), allocation/
-mrta/      Multi-Robot Task Allocation (Task, TaskSource, Allocator, FleetManager)
-client/    presentation — control/ (scripting API), view/ (frozen DTOs),
-           frontends/ (pygame, headless)
+core/       pure simulation engine — entities/ (Position, WorldEntity, Agent),
+            environment/ (Grid), engine/ (Simulation, Coordinator, PlanResult)
+algo/       MAPF algorithms — coordination/ (PIBT, random walk), allocation/
+mrta/       Multi-Robot Task Allocation (Task, TaskSource, Allocator, FleetManager)
 diagrammes/ PlantUML class diagram sources + generated PNGs
-main.py     CLI entry point
-demo_pibt.py legacy interactive PIBT entry point
+main.py     CLI entry point — BROKEN, see TODO.md
 ```
 
 Dependencies are strictly one-directional:
 
 ```
-mrta             → core
-algo             → core, mrta
-client.view      → core, mrta (value types only)
-client.control   → core, algo, mrta      (composition root)
-client.frontends → core, client.view     (read-only)
+mrta → core
+algo → core, mrta
 ```
 
-`core/` never imports the others, and frontends never see an algorithm or any task-allocation
-behaviour — only frozen values. See [`GUIDE.md`](GUIDE.md) for a human tour of the project and
-[`AGENT.md`](AGENT.md) for the full architecture reference.
+`core/` never imports the others. See [`GUIDE.md`](GUIDE.md) for a human tour of the project
+and [`AGENT.md`](AGENT.md) for the full architecture reference.
 
 ## Adding your own algorithm
 
