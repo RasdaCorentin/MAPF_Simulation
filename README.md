@@ -9,7 +9,7 @@ Backtracking).
 > to drive a scenario. `core/`, `algo/`, `mrta/` and the three static-mode `sim_many_*.py`
 > sweeps below are unaffected and work today.
 
-![Class diagram](diagrammes/simulation_class_diagram_commente.png)
+![Class diagram](diagrammes/Class_Diagram/simulation_class_diagram_commente.png)
 
 ## Inspiration & attribution
 

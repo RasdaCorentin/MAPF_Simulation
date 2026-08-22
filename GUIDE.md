@@ -65,7 +65,7 @@ the *same* object, so allocation and movement stay in sync.
 
 For the visual overview, see the class diagram:
 
-![Class diagram](diagrammes/simulation_class_diagram_commente.png)
+![Class diagram](diagrammes/Class_Diagram/simulation_class_diagram_commente.png)
 
 ---
 
