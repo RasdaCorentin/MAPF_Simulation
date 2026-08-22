@@ -103,7 +103,7 @@ Task | Mission
 ### mrta/task_source.py
 ```
 TaskSource | MissionSource
-	poll
+	poll | fetch_new_missions
 ```
 
 ### mrta/queue_task_source.py
@@ -112,28 +112,28 @@ QueueTaskSource | QueueMissionSource
 	__init__
 	push
 	push_many
-	poll
+	poll | fetch_new_missions
 ```
 
 ### mrta/random_task_source.py
 ```
 RandomTaskSource | RandomMissionSource
 	__init__
-	poll
+	poll | fetch_new_missions
 ```
 
 ### mrta/scripted_task_source.py
 ```
 ScriptedTaskSource | ScriptedMissionSource
 	__init__
-	poll
+	poll | fetch_new_missions
 ```
 
 ### mrta/composite_task_source.py
 ```
 CompositeTaskSource | CompositeMissionSource
 	__init__
-	poll
+	poll | fetch_new_missions
 ```
 
 ### mrta/allocator.py
