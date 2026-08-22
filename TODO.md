@@ -1,9 +1,14 @@
 # TODO
 
-## `main.py` and `sim_many_mrta.py` are currently broken
+## Nothing in the repo runs end to end right now
 
-Both were left broken on purpose by the `client/`/`report/` removal (see
-`4f8aef4 refactor!: remove client/ and report/`):
+Two removals, same reasoning each time: strip the concrete layer, leave only the pure
+abstractions (`core`'s `Coordinator`/`Dispatcher`, `mrta`'s `Allocator`/`TaskSource`), force a
+deliberate redesign later instead of letting the concrete stuff keep quietly justifying itself.
+
+### `main.py` and `sim_many_mrta.py` — broken by the `client/`/`report/` removal
+
+(`4f8aef4 refactor!: remove client/ and report/`)
 
 - `main.py` imports `client.control.{ScenarioConfig, build}` and `report.{CsvSink,
   RunCollector}`.
@@ -22,17 +27,36 @@ without thinking through the same question that led to this refactor: what shoul
 caller-facing surface actually look like, what stays private, what's public. That design
 conversation is intentionally still open; see the project's own notes for it.
 
-**What unblocking these two actually needs:**
-1. A way to wire a `Grid` + `Agent`s + `Coordinator` (+ `FleetManager` in MRTA mode) —
-   `core/`, `algo/`, `mrta/` are all still there and untouched; `sim_many_pibt.py`,
-   `sim_many_lacam.py` and `sim_many_pibt_plus.py` already do this by hand for the
-   static/PIBT/LaCAM/PIBT+ case and are the closest working examples to copy the shape of for
-   `main.py`. `sim_many_mrta.py` additionally needs the MRTA wiring (`QueueTaskSource`,
-   `RandomTaskSource`, `EasiestAllocator`/`RandomAllocator`) that `client/control/factory.py`
-   used to do — including `default_zones()`, which lived there too.
-2. If run measurement (`--log`, `RunRecord`, the CSV outputs) is still wanted, a replacement
+### `sim_many_pibt.py`, `sim_many_lacam.py`, `sim_many_pibt_plus.py` — broken by the `algo/` removal
+
+(`9f2d15c refactor!: remove algo/`)
+
+All three imported a concrete `Coordinator` directly from `algo.coordination`
+(`PIBTCoordinator`, `LaCAMCoordinator`, `PIBTPlusCoordinator`) — none of it exists anymore.
+Same `ImportError`-at-top-level failure mode as above. These three were, until this removal,
+the only working entry points left in the repo and the de-facto regression checks — there are
+now none.
+
+**Why not patched either:** same reasoning as `client/`/`report/` above, one level down —
+`algo/` was the only package with a concrete `Coordinator` (PIBT, LaCAM, PIBT+, random walk)
+and the only concrete `Allocator` implementations (`EasiestAllocator`, `RandomAllocator`,
+the already-stubbed `KDTreeGreedyAllocator`). Rewriting a coordinator inline in a benchmark
+script to unblock it would be deciding the algorithm's shape as a side effect of unblocking a
+script, not as its own considered piece of work.
+
+### What unblocking any of this actually needs
+
+1. At least one concrete `Coordinator` and one concrete `Allocator` again — `core/` and
+   `mrta/` still declare the abstractions (`Coordinator`, `Dispatcher`, `Allocator`,
+   `TaskSource`) untouched by either removal, there is simply nothing left that implements
+   them.
+2. A way to wire a `Grid` + `Agent`s + that `Coordinator` (+ `FleetManager` in MRTA mode) —
+   this used to be `client.control.factory.build()`; whatever replaces it should be scoped
+   deliberately, not reconstructed as a byproduct of unblocking one script.
+3. If run measurement (`--log`, `RunRecord`, the CSV outputs) is still wanted, a replacement
    for `report/RunCollector` that observes `Simulation`/`FleetManager` directly instead of a
    `SimulationDriver`/`StepSnapshot` it no longer has to decorate.
 
-Neither of these should be done piecemeal inside `main.py`/`sim_many_mrta.py` ahead of that
-design conversation — that is exactly how the previous `client/` accreted the way it did.
+None of this should be done piecemeal inside `main.py`/`sim_many_*.py` ahead of the design
+conversation these two removals were meant to force — that is exactly how the previous
+`client/` accreted the way it did.
