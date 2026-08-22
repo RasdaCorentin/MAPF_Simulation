@@ -21,7 +21,6 @@ Folder and file names are in English.
 ├── CONVENTION.md        — this file
 ├── TODO.md              — known-broken entry points and why
 ├── core/                — pure simulation engine (entities, environment, engine)
-├── algo/                — MAPF algorithms (coordination, allocation)
 ├── mrta/                — Multi-Robot Task Allocation
 ├── diagrammes/          — PlantUML sources + generated PNGs (class, component, object)
 ├── main.py              — CLI entry point (currently broken, see TODO.md)

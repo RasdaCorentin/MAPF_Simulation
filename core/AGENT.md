@@ -5,9 +5,8 @@
 > repeated here. Read it first.
 
 `core/` is the pure simulation engine: entities, the grid they live on, and the tick that
-moves them. It imports **nothing** from `algo/` or `mrta/` — the dependency is strictly
-one-directional, which is what lets an algorithm or an allocator be swapped without the
-engine noticing.
+moves them. It imports **nothing** from `mrta/` — the dependency is strictly one-directional,
+which is what lets an algorithm or an allocator be swapped without the engine noticing.
 
 ### `Position` — `core/entities/position.py`
 ```python
@@ -40,8 +39,8 @@ span more than one cell. The base returns `(position,)`; only `Zone` overrides i
 ⚠ **`cells` is not `scale`, and `scale` is still reserved.** `cells` is an explicit list for
 *indexing* — "where do I find this entity?". `scale` would be a movement *footprint* — "how much
 room does it need to move?" — and would force `Grid`, `is_blocked`, `Simulation._validate` and
-PIBT's candidate generation to change together. `scale` is assigned in `__init__` and read
-nowhere in the repo: do not write code that assumes it works.
+a coordinator's candidate generation to change together. `scale` is assigned in `__init__` and
+read nowhere in the repo: do not write code that assumes it works.
 
 ---
 
@@ -78,7 +77,9 @@ class Agent(WorldEntity):
     def move_to(new_position: Position)   # updates position + steps_taken
     def __eq__ / __hash__                 # based on agent_id — hashable, usable as a dict key
 ```
-`agent_id` is immutable -> stable hash. Used as a dict key in `PIBTCoordinator.goals` and internally in `PriorityManager`/`ReservationTable`.
+`agent_id` is immutable -> stable hash. Meant to be used as a dict key wherever a coordinator
+tracks per-agent state — goals, priorities, reservations; PIBT did exactly this before `algo/`
+was removed (see `TODO.md`).
 Constructor: `Agent(agent_id, position)` — no strategy of its own, movement is always delegated to the `Coordinator`.
 
 ---
@@ -113,7 +114,7 @@ class PlanResult:
     inheritance: list[tuple]           # (pusher_id, pushed_id)        (optional diagnostic)
     priorities:  dict[int, float]      # agent_id -> priority          (optional diagnostic)
 ```
-DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics, left empty outside the PIBT family. Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
+DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics a coordinator may leave empty if it has nothing to report there — PIBT was the one implementation that populated all three, before `algo/` was removed (see `TODO.md`). Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
 
 **Frozen**, like every value crossing a package boundary in this project: a caller can hold onto
 the object `Simulation.step()` returned without the engine being able to rewrite it later — the
@@ -130,7 +131,7 @@ class DispatchIntent:
     goals:      dict[int, Position]   # agent_id -> target (absolute, this tick)
     priorities: dict[int, float]      # agent_id -> allocation priority (optional per agent)
 ```
-Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `Dispatcher`, consumed by `Coordinator.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the coordinator, which keeps allocation (`mrta`) and navigation (`algo`) decoupled and gives an auditable per-tick record.
+Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `Dispatcher`, consumed by `Coordinator.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the coordinator, which keeps allocation (`mrta`) and navigation (whatever implements `Coordinator`) decoupled and gives an auditable per-tick record.
 
 ---
 
@@ -187,7 +188,7 @@ already-incremented step (an entity with `appear_at=1` spawns on the first `step
 # 4. Validate: self._validate(result) — raises before the grid is touched
 # 5. Lift:  grid.remove(agent) for every agent whose target differs from its position
 # 6. Place: agent.move_to(target) then grid.place(agent)
-#    Return result — clients read diagnostics from it without importing algo
+#    Return result — a caller reads diagnostics from it without importing the coordinator's package
 ```
 The `dispatch → plan` order is owned by `step()`, so a caller cannot plan on stale goals. Movement is applied by `step()` itself (lift-then-place) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
 

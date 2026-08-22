@@ -1,20 +1,21 @@
-# MAPF Simulation — PIBT
+# MAPF Simulation
 
 A small **Multi-Agent Path Finding (MAPF)** simulator with a pluggable coordinator
-interface. The flagship coordinator implements **PIBT** (Priority Inheritance with
-Backtracking).
+interface — the engine and the task-allocation domain, with no algorithm plugged in
+right now.
 
-> **Currently a library, not a runnable demo.** `main.py` and `sim_many_mrta.py` are
-> broken — see [`TODO.md`](TODO.md) — pending a deliberate redesign of how a caller is meant
-> to drive a scenario. `core/`, `algo/`, `mrta/` and the three static-mode `sim_many_*.py`
-> sweeps below are unaffected and work today.
+> **Currently just the abstractions, nothing runnable.** `core/` and `mrta/` declare
+> `Coordinator`, `Dispatcher`, `Allocator` and `TaskSource`, but nothing implements any of
+> them anymore — `algo/` (PIBT, LaCAM, PIBT+, random walk, the allocators) and `client/`/
+> `report/` (scenario wiring, run measurement) were both removed on purpose, one after the
+> other. See [`TODO.md`](TODO.md): nothing in the repo runs end to end today, including
+> every `sim_many_*.py` sweep.
 
 ![Class diagram](diagrammes/Class_Diagram/simulation_class_diagram_commente.png)
 
 ## Inspiration & attribution
 
-The PIBT coordinator in
-[`algo/coordination/pibt_coordinator.py`](algo/coordination/pibt_coordinator.py) is an
+Until it was removed (see [`TODO.md`](TODO.md)), this project's PIBT coordinator was an
 **independent reimplementation** inspired by the work of **Okumura et al.**:
 
 > Keisuke Okumura, Manao Machida, Xavier Défago, Yasumasa Tamura.
@@ -29,11 +30,11 @@ original authors.
 
 - **Pure simulation core** (`core/`) with zero rendering dependency.
 - **Pluggable `Coordinator` interface** — drop in any MAPF algorithm; every `plan()`
-  returns a uniform `PlanResult` DTO.
-- Two coordinators provided: **PIBT** and a minimal **random walk**.
+  returns a uniform `PlanResult` DTO. No concrete one is provided currently.
 - **Task allocation** (`mrta/`): tasks with a full lifecycle (including failure and a
   progress watchdog), several task sources, an allocator interface, and a fleet
-  manager that dispatches goals to the shared coordinator.
+  manager that dispatches goals to whatever coordinator is plugged in. No concrete
+  `Allocator` is provided currently either.
 - Deferred spawns and impassable obstacles.
 
 ## Requirements
@@ -51,21 +52,15 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 ## Running it
 
-`main.py` and `sim_many_mrta.py` are currently broken (see the note above and
-[`TODO.md`](TODO.md)). What works today, run from the repository root:
-
-```bash
-python sim_many_pibt.py --seeds 2               # headless PIBT benchmark sweep
-python sim_many_lacam.py --seeds 2              # same, LaCAM
-python sim_many_pibt_plus.py --seeds 2          # same, PIBT+
-```
+Nothing runs end to end right now — see [`TODO.md`](TODO.md) for the full picture. `core/`
+and `mrta/` still import cleanly and can be exercised directly (construct a `Grid`/`Agent`/
+`Task` by hand), there is just no `Coordinator` implementation to run a full tick with.
 
 ## Project structure
 
 ```
 core/       pure simulation engine — entities/ (Position, WorldEntity, Agent),
             environment/ (Grid), engine/ (Simulation, Coordinator, PlanResult)
-algo/       MAPF algorithms — coordination/ (PIBT, random walk), allocation/
 mrta/       Multi-Robot Task Allocation (Task, TaskSource, Allocator, FleetManager)
 diagrammes/ PlantUML class diagram sources + generated PNGs
 main.py     CLI entry point — BROKEN, see TODO.md
@@ -75,10 +70,9 @@ Dependencies are strictly one-directional:
 
 ```
 mrta → core
-algo → core, mrta
 ```
 
-`core/` never imports the others. See [`GUIDE.md`](GUIDE.md) for a human tour of the project
+`core/` never imports `mrta/`. See [`GUIDE.md`](GUIDE.md) for a human tour of the project
 and [`AGENT.md`](AGENT.md) for the full architecture reference.
 
 ## Adding your own algorithm
@@ -98,9 +92,9 @@ class MyAlgo(Coordinator):
 
 Wire it in with a dispatcher that supplies the goals — a `StaticDispatcher` for fixed
 targets, or a `FleetManager` (mrta) for task allocation:
-`Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. See
-[`algo/coordination/random_walk.py`](algo/coordination/random_walk.py) for a minimal
-working example.
+`Simulation(grid, coordinator=MyAlgo(), dispatcher=StaticDispatcher(goals={...}))`. There is
+currently no reference implementation left in the repo to copy the shape of — see
+[`TODO.md`](TODO.md).
 
 ## License
 

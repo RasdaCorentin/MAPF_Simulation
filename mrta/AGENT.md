@@ -4,9 +4,8 @@
 > invariants and the diagrams — lives in the root [`AGENT.md`](../AGENT.md) and is **not**
 > repeated here. Read it first.
 
-`mrta/` decides *who does what*. It sits on `core` alone and never imports `algo`:
-allocation and navigation meet only through `DispatchIntent`, which is what lets any
-allocator run under any coordinator.
+`mrta/` decides *who does what*. It sits on `core` alone: allocation and navigation meet
+only through `DispatchIntent`, which is what lets any allocator run under any coordinator.
 
 ```python
 class TaskState(Enum):             # mrta/task.py
@@ -91,12 +90,13 @@ untouched and new allocators need no adaptation.
 
 ## Eligibility and the allocator contract
 
-Neither allocator filters eligibility. `FleetManager._by_eligibility()` groups pending tasks
-by eligibility class and calls the allocator once per class, **restricted classes first**, so
-an unrestricted task cannot steal a reserved agent. The constraint lives on the *request*, not
-on the matching *strategy* — which is why the `Allocator` interface never had to grow for it,
-and why a new allocator needs no adaptation. See [`../algo/AGENT.md`](../algo/AGENT.md) for
-the allocators themselves.
+No `Allocator` implementation filters eligibility — that guarantee holds regardless of which
+one is plugged in. `FleetManager._by_eligibility()` groups pending tasks by eligibility class
+and calls the allocator once per class, **restricted classes first**, so an unrestricted task
+cannot steal a reserved agent. The constraint lives on the *request*, not on the matching
+*strategy* — which is why the `Allocator` interface never had to grow for it, and why a new
+allocator needs no adaptation. There is currently no concrete `Allocator` at all — see
+`TODO.md`.
 
 ---
 

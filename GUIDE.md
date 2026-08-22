@@ -11,14 +11,14 @@ reference, see [`AGENT.md`](AGENT.md); for git conventions, see
 
 A small **Multi-Agent Path Finding (MAPF)** simulator. Several agents live on a grid,
 each wants to reach a goal cell, and a **coordinator** decides — every step — where
-everyone moves so that no two agents collide. The headline coordinator is **PIBT**
-(Priority Inheritance with Backtracking): low-priority agents step aside for
-higher-priority ones, and the algorithm backtracks when a chosen move turns out to be
-a dead end.
+everyone moves so that no two agents collide. `core/` declares that `Coordinator`
+interface but, as of this refactor, provides no implementation of it — see
+[`TODO.md`](TODO.md) for why and what used to be there (PIBT, LaCAM, PIBT+, random walk).
 
 On top of the movement layer sits an optional **task-allocation** layer (`mrta/`):
 tasks appear over time, get matched to free agents, and their targets are pushed to the
-coordinator as goals.
+coordinator as goals. Same story for `Allocator`: the interface exists, nothing implements
+it right now.
 
 ---
 
@@ -29,12 +29,10 @@ coordinator as goals.
 python -m venv .venv && source .venv/bin/activate
 ```
 
-`main.py` is currently broken — it depended on `client.control`/`report`, both removed;
-see [`TODO.md`](TODO.md). Run one of the headless sweeps from the repository root instead:
-
-```bash
-python sim_many_pibt.py --seeds 2   # headless PIBT benchmark sweep
-```
+Nothing currently runs end to end — `main.py` and every `sim_many_*.py` sweep are broken,
+see [`TODO.md`](TODO.md) for the full picture. `core/` and `mrta/` still import cleanly and
+can be exercised directly from a Python shell (construct a `Grid`, an `Agent`, a `Task` by
+hand); there is just no `Coordinator` to run a full tick with.
 
 No runtime dependencies are needed (`requirements.txt` is currently empty).
 
@@ -42,22 +40,21 @@ No runtime dependencies are needed (`requirements.txt` is currently empty).
 
 ## How it fits together
 
-Three packages, with a strict one-way dependency flow:
+Two packages left, one-way dependency:
 
 ```
-core ◄─── mrta ◄─── algo
+core ◄─── mrta
 ```
 
 - **`core/`** — the pure engine, no rendering, no algorithm. Holds the world:
   `Position`, `WorldEntity`, `Agent`, `Grid`, the `Simulation` loop, and the
   `Coordinator` interface plus its `PlanResult` return type.
-- **`algo/`** — the algorithms. `coordination/` has PIBT and a random walk;
-  `allocation/` has the task allocators. Pure logic, no I/O.
 - **`mrta/`** — task allocation: `Task`, `TaskSource`, `Allocator`, and `FleetManager`,
   which hands goals to the coordinator. Depends only on `core`.
 
-There is currently nothing above these three — no scripting layer wires a scenario for you;
-see [`TODO.md`](TODO.md).
+There used to be a third package, `algo/` (the algorithms: PIBT, LaCAM, PIBT+, random walk,
+the allocators), and a scripting layer above both to wire a scenario. Both were removed
+deliberately — see [`TODO.md`](TODO.md) for why and what's needed to bring either back.
 
 The key handshake: `Simulation.step()` asks the coordinator to `plan()` and gets back a
 `PlanResult` (next positions + diagnostics). `FleetManager` and the coordinator share
@@ -73,12 +70,10 @@ For the visual overview, see the class diagram:
 
 | I want to…                                   | Go to…                                          |
 |:---------------------------------------------|:------------------------------------------------|
-| Change how agents move / the MAPF algorithm  | `algo/coordination/`                            |
-| Add a new coordinator                        | `algo/coordination/` (subclass `Coordinator`)   |
-| Change how tasks are matched to agents       | `algo/allocation/`                              |
+| Add a coordinator (none exist right now)     | subclass `Coordinator` from `core`, see "Extending it" below |
+| Add an allocator (none exist right now)      | subclass `Allocator` from `mrta`, see "Extending it" below |
 | Change the task lifecycle / dispatch loop    | `mrta/fleet_manager.py`                         |
 | Change the grid, entities, or the step loop  | `core/`                                          |
-| Wire a scenario by hand (no scripting layer today) | `sim_many_pibt.py` for the shape           |
 | Update the class diagram                     | `diagrammes/Class_Diagram/class_diag_commented.puml` (+ `plantuml`) |
 
 ---
@@ -98,12 +93,13 @@ class MyAlgo(Coordinator):
         return PlanResult(positions=positions, moves=moves)
 ```
 
-Plug it in with `Simulation(grid, coordinator=MyAlgo())`.
-`algo/coordination/random_walk.py` is the smallest working example.
+Plug it in with `Simulation(grid, coordinator=MyAlgo())`. There is currently no reference
+implementation left in the repo to copy the shape of — `algo/` (PIBT, LaCAM, PIBT+, random
+walk) was removed; see [`TODO.md`](TODO.md).
 
-**A new allocator** — subclass `Allocator` and implement
-`allocate(pending, free, grid)`. `algo/allocation/random_allocator.py` shows the shape;
-`KDTreeGreedyAllocator` is a deliberate stub left for a future design discussion.
+**A new allocator** — subclass `Allocator` and implement `allocate(pending, free, grid)`.
+Same situation: no concrete allocator (`EasiestAllocator`, `RandomAllocator`,
+`KDTreeGreedyAllocator`) is left in the repo to show the shape.
 
 ---
 

@@ -9,14 +9,10 @@
 - **`README.md` / `GUIDE.md`** — human-facing overview and guided tour.
 
 The reference for architecture is the class diagram: when this file, the code and the diagram
-disagree, **the diagram arbitrates** — see *Rules and invariants*. It and the two object diagrams
-are imported below so they are always in context; read them, do not re-derive them.
+disagree, **the diagram arbitrates** — see *Rules and invariants*. It is imported below so it is
+always in context; read it, do not re-derive it.
 
 @diagrammes/Class_Diagram/class_diag_commented.puml
-
-@diagrammes/Object_Diagram/object_diag_mrta.puml
-
-@diagrammes/Object_Diagram/object_diag_static.puml
 
 ---
 
@@ -28,34 +24,29 @@ direction, the rules and the invariants. Everything about a specific class lives
 | Guide | Covers |
 |---|---|
 | [`core/AGENT.md`](core/AGENT.md) | `Position`, `WorldEntity`, `Zone`, `Agent`, `Grid`, `PlanResult`, `DispatchIntent`, `Coordinator`, `Dispatcher`, `Simulation` — and the tick |
-| [`algo/AGENT.md`](algo/AGENT.md) | PIBT (coordinator, reservations, priorities), random walk, the allocators, how to add a `Coordinator` |
 | [`mrta/AGENT.md`](mrta/AGENT.md) | `Task` lifecycle, task sources, `FleetManager`, eligibility, the watchdog, domain vocabulary |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough. Changing a *seam* between two — an ABC,
 a DTO, an import direction — read both guides and the rules below.
 
-`client/` and `report/` are gone as of this refactor — see `TODO.md` for what that broke
-(`main.py`, `sim_many_mrta.py`) and why it was left broken rather than patched.
+`client/`, `report/` and `algo/` are all gone as of this and an earlier refactor — see `TODO.md`
+for exactly what that broke and why it was left broken rather than patched.
 
 ---
 
 ## Running the simulation
 
-`main.py` and `sim_many_mrta.py` currently raise `ImportError` — both depended on
-`client.control`/`report`, removed together (see `TODO.md`). What still works, unaffected —
-`core/`, `algo/` and `mrta/` were untouched by that removal:
+Nothing runs end to end right now. `main.py` and `sim_many_mrta.py` were broken first (depended
+on `client.control`/`report`); `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py`
+were broken after (depended on a concrete `Coordinator` from `algo/`). All five raise
+`ImportError` at the top-level import — see `TODO.md` for the full picture and what unblocking
+any of them actually needs.
 
-```bash
-python sim_many_pibt.py --seeds 2               # headless PIBT benchmark sweep -> sim_results.csv
-python sim_many_lacam.py --seeds 2              # same, LaCAM
-python sim_many_pibt_plus.py --seeds 2          # same, PIBT+
-```
-There is currently **no test suite** — these are the de-facto regression checks.
-
-**Runs are reproducible from `--seed` alone** — every allocator owns a seeded RNG rather than
-the `random` module's global one. Two runs of the same command must produce identical output;
-if they stop doing so, something has reached for global randomness again.
+There is currently **no test suite either**, and no working de-facto regression check to fall
+back on. `core/` and `mrta/` still import cleanly and their own internals can be exercised
+directly (construct a `Grid`/`Agent`/`Task` by hand, no scenario wiring needed) — there is just
+nothing that runs a full tick without a `Coordinator` implementation to plug in.
 
 ---
 
@@ -73,18 +64,12 @@ if they stop doing so, something has reached for global randomness again.
 │                    task, task_source (+ queue/random/scripted/composite),
 │                    allocator, fleet_manager
 │
-├── algo/          — MAPF algorithms                                     -> algo/AGENT.md
-│   ├── coordination/ — random_walk, reservation_table, priority_manager,
-│   │                   pibt_coordinator
-│   └── allocation/   — easiest_allocator (DEFAULT), random_allocator,
-│                       kdtree_greedy_allocator (stub)
-│
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
-├── sim_many_pibt.py              — headless PIBT benchmark sweep -> sim_results.csv
-├── sim_many_lacam.py             — headless LaCAM benchmark sweep
-├── sim_many_pibt_plus.py         — headless PIBT+ benchmark sweep
-├── main.py            — BROKEN: imported client.control/report, both removed — see TODO.md
-├── sim_many_mrta.py   — BROKEN: same reason — see TODO.md
+├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
+├── sim_many_mrta.py      — BROKEN: same reason — see TODO.md
+├── sim_many_pibt.py      — BROKEN: imported a concrete Coordinator from algo/, removed — see TODO.md
+├── sim_many_lacam.py     — BROKEN: same reason — see TODO.md
+├── sim_many_pibt_plus.py — BROKEN: same reason — see TODO.md
 ├── TODO.md · README.md · GUIDE.md · CONVENTION.md · CLAUDE.md
 └── requirements.txt · LICENSE
 ```
@@ -97,11 +82,10 @@ gitignored outputs.
 
 ```
 mrta -> core
-algo -> core, mrta
 ```
 
-There is currently nothing above `algo`/`mrta` — no scripting layer names a concrete
-`Coordinator`/`Allocator` or wires a `FleetManager`; see `TODO.md`.
+There is currently nothing implementing `Coordinator` or `Allocator`, and nothing above `mrta`
+names a concrete one or wires a `FleetManager`; see `TODO.md`.
 
 ---
 
@@ -114,8 +98,7 @@ break it. When in doubt, the class diagram arbitrates.
 
 ### Hard rules — never violate these
 
-- **`core/` must never import `algo/` or `mrta/`** — strictly one-directional dependency.
-- **`mrta/` must never import `algo/`** — it depends only on `core`.
+- **`core/` must never import `mrta/`** — strictly one-directional dependency.
 - **The class diagram is the reference.** When code and `class_diag_commented.puml` disagree, the
   default is to change the *code* so the diagram becomes true; amend the diagram only when it is
   genuinely wrong. The component and object diagrams follow the class diagram, never the reverse.
@@ -124,19 +107,18 @@ break it. When in doubt, the class diagram arbitrates.
   instance.
 - **Every diagram change is validated before the code that makes it true is written.** See
   [`diagrammes/AGENT.md`](diagrammes/AGENT.md) for the full rule.
-- **Keep the diagrams in sync.** Five sources, each with its own scope:
+- **Keep the diagrams in sync.** Three sources, each with its own scope:
 
   | Source | Scope | Regenerate with |
   |---|---|---|
-  | `diagrammes/Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta`, `algo` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
+  | `diagrammes/Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
   | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
-  | `diagrammes/Object_Diagram/object_diag_mrta.puml` | instances after one MRTA tick (French) | `plantuml diagrammes/Object_Diagram/object_diag_mrta.puml` |
-  | `diagrammes/Object_Diagram/object_diag_static.puml` | same, static mode (French) | `plantuml diagrammes/Object_Diagram/object_diag_static.puml` |
 
   Never edit the generated PNGs. There is no sequence diagram: `sequence_tick.puml` was dropped —
   the tick order it showed is stated on `Simulation` in the class diagram and in
-  [`core/AGENT.md`](core/AGENT.md).
+  [`core/AGENT.md`](core/AGENT.md). There is currently no `Object_Diagram/` either — both
+  modeled a concrete tick through classes that no longer exist; see `diagrammes/AGENT.md`.
 
 ### Invariants — properties the code already maintains
 
@@ -149,19 +131,14 @@ break it. When in doubt, the class diagram arbitrates.
 | Coordinator is mandatory | `Simulation` refuses to run without one; a dispatcher is optional |
 | Obstacle = WorldEntity | `WorldEntity(id, pos, blocks_movement=True)` suffices — no subclass |
 | A zone labels ground | `Zone` never blocks movement and is indexed at every cell it covers; `get_all()` returns it once |
-| Goal stability | PIBT inserts `loc(i)` first among candidates if `loc(i) == goal(i)` |
-| Algorithms have no I/O dependency | `algo/` is pure computation — no rendering, no file access |
 | `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
 | `DispatchIntent` decouples allocation from navigation | goals/priorities flow only through the intent; no external mutation of the coordinator, so any Coordinator pairs with any Dispatcher |
 | Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
 | Plans are validated, not rolled back | `Simulation._validate()` rejects an inapplicable `PlanResult` **before** any mutation, so the lift/place transaction cannot fail partially |
 | Task identity belongs to the registry | `FleetManager` stamps `task_id` at intake; sources propose tasks without one, so several sources cannot collide (`Task` hashes on `task_id`) |
-| `-inf` demotion is reversible by default | "at its goal" is a *state*; under `GoalReachedPolicy.TRANSIENT` (the default) `PIBTCoordinator` saves the overwritten base and restores it as soon as the state stops holding. `PERMANENT`, chosen by the caller at construction for a static goal regime, deliberately never restores it |
-| Allocation stays inside the seed | `EasiestAllocator` draws no random numbers; `RandomAllocator` owns its RNG |
 | No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
 
----
-
-## Still to do on the diagrams
-
-- `Object_Diagram/object_diag_mrta.puml` does not show a `Zone` instance yet.
+A few invariants used to live here that named `algo/` classes directly (PIBT's goal-stability
+rule, its `-inf` demotion policy, the two allocators' seeded-RNG guarantee) — dropped along with
+`algo/` itself rather than kept as a promise nothing currently makes. Whatever implements
+`Coordinator`/`Allocator` next should restate the ones that still apply to it.
