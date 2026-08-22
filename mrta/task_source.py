@@ -1,19 +1,20 @@
 from abc import ABC, abstractmethod
 
-from .task import Task
+from .task import Mission
 
 
-class TaskSource(ABC):
-    """Strategy interface for producing new tasks over time.
+class MissionSource(ABC):
+    """Strategy interface for producing new missions over time.
 
-    Polled once per dispatch cycle by FleetManager; implementations
-    decide which new tasks (if any) become available at the given
-    simulation step (e.g. reading a schedule, a queue, or user input).
+    Polled once per assignment cycle by TaskDrivenOrchestrator;
+    implementations decide which new missions (if any) become available
+    at the given simulation step (e.g. reading a schedule, a queue, or
+    user input).
     """
 
     @abstractmethod
-    def poll(self, current_step: int) -> list[Task]:
+    def fetch_new_missions(self, current_step: int) -> list[Mission]:
         """Input: the current simulation step.
-        Output: newly available tasks at this step (possibly empty).
+        Output: newly available missions at this step (possibly empty).
         """
         ...

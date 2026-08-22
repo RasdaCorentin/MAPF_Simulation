@@ -1,53 +1,54 @@
 from typing import Optional
 
-from ..environment.grid import Grid
+from ..environment.grid import SpatialIndex
 from ..entities.agent import Agent
-from ..entities.position import Position
-from ..entities.entity import WorldEntity
-from .coordinator import Coordinator
-from .dispatcher import Dispatcher
-from .dispatch_intent import DispatchIntent
-from .plan_result import PlanResult
+from ..entities.position import Coordinates2D
+from ..entities.entity import SpatialEntity
+from .coordinator import PathPlanner
+from .dispatcher import MissionOrchestrator
+from .dispatch_intent import AssignmentManifest
+from .plan_result import StepOutcome
 
 
-class Simulation:
+class WorldEngine:
     """Pure simulation engine — no rendering dependency.
 
     Owns the grid, the agents and the world entities, and advances the
-    world one step at a time. A Coordinator is mandatory: ``step()``
-    always delegates movement planning to ``coordinator.plan()``. An
-    optional Dispatcher (e.g. a FleetManager) is run at the start of each
-    step to produce this tick's ``DispatchIntent`` (goals/priorities),
-    which is passed to ``plan()`` — the coordinator is never mutated.
+    world one step at a time. A PathPlanner is mandatory:
+    ``advance_time_step()`` always delegates movement planning to
+    ``coordinator.plan()``. An optional MissionOrchestrator (e.g. a
+    TaskDrivenOrchestrator) is run at the start of each step to produce
+    this tick's ``AssignmentManifest`` (goals/priorities), which is
+    passed to ``plan()`` — the planner is never mutated.
     """
 
     def __init__(
         self,
-        grid: Grid,
-        coordinator: Coordinator,
-        dispatcher: Optional[Dispatcher] = None,
+        grid: SpatialIndex,
+        coordinator: PathPlanner,
+        dispatcher: Optional[MissionOrchestrator] = None,
     ) -> None:
         """Input: the grid, the (mandatory) coordination strategy, and an
-        optional dispatcher run before planning each step.
+        optional mission orchestrator run before planning each step.
         Output: None.
         """
         self.grid = grid
         self.agents: list[Agent] = []
-        self.entities: list[WorldEntity] = []
-        self._pending: list[WorldEntity] = []
+        self.entities: list[SpatialEntity] = []
+        self._pending: list[SpatialEntity] = []
         self.current_step = 0
         self.coordinator = coordinator
         self.dispatcher = dispatcher
-        self.last_intent = DispatchIntent()
+        self.last_intent = AssignmentManifest()
 
-    def add_agent(self, agent: Agent) -> None:
+    def register_agent(self, agent: Agent) -> None:
         """Input: an agent (its position must be free and valid).
         Output: None. Places the agent on the grid and registers it.
         """
         self.grid.place(agent)
         self.agents.append(agent)
 
-    def add_object(self, entity: WorldEntity) -> None:
+    def spawn_static_obstacle(self, entity: SpatialEntity) -> None:
         """Input: a world entity (obstacle, ...).
         Output: None. Placed immediately, or deferred until its
         ``appear_at`` step is reached.
@@ -58,8 +59,8 @@ class Simulation:
         else:
             self._pending.append(entity)
 
-    def _validate(self, result: PlanResult) -> None:
-        """Input: the PlanResult about to be applied.
+    def _validate_plan(self, result: StepOutcome) -> None:
+        """Input: the StepOutcome about to be applied.
         Output: None. Raises ValueError if the plan is not applicable —
         a target off the grid, onto an active blocking entity, or shared
         by two agents.
@@ -69,7 +70,7 @@ class Simulation:
         impossible. A rollback would have to restore both ``position``
         and grid placement, and could itself fail. Cost is O(n).
         """
-        claimed: dict[Position, int] = {}
+        claimed: dict[Coordinates2D, int] = {}
         for agent in self.agents:
             target = result.positions.get(agent.agent_id, agent.position)
             who = type(self.coordinator).__name__
@@ -90,14 +91,14 @@ class Simulation:
             if target == agent.position:
                 continue
 
-            if not self.grid.is_valid(target):
+            if not self.grid.is_within_bounds(target):
                 raise ValueError(
                     f"{who} planned agent {agent.agent_id} onto {target}, "
                     f"outside the {self.grid.width}x{self.grid.height} grid."
                 )
             if any(
-                e.blocks_movement and e.active
-                for e in self.grid.get_entities_at(target)
+                e.blocks_movement and e.is_active
+                for e in self.grid.entities_at(target)
                 if not isinstance(e, Agent)
             ):
                 raise ValueError(
@@ -105,13 +106,13 @@ class Simulation:
                     f"which holds a blocking entity."
                 )
 
-    def step(self) -> PlanResult:
+    def advance_time_step(self) -> StepOutcome:
         """Input: none.
-        Output: the PlanResult of this step (returned so that clients can
+        Output: the StepOutcome of this step (returned so that clients can
         display planning diagnostics without depending on the algorithm).
-        Advances the world by one step: spawn pending entities, dispatch
-        tasks (if a dispatcher is attached), plan, validate, then apply
-        the moves.
+        Advances the world by one step: spawn pending entities, assign
+        missions (if a mission orchestrator is attached), plan, validate,
+        then apply the moves.
         """
         self.current_step += 1
 
@@ -121,33 +122,33 @@ class Simulation:
             self.grid.place(entity)
             self._pending.remove(entity)
 
-        # 2. Dispatch tasks before planning: compute this tick's intent
-        # (absolute goals/priorities). An empty intent if no dispatcher.
+        # 2. Assign missions before planning: compute this tick's manifest
+        # (absolute goals/priorities). An empty manifest if no orchestrator.
         if self.dispatcher is not None:
-            intent = self.dispatcher.dispatch(self.agents, self.grid, self.current_step)
+            intent = self.dispatcher.assign_missions(self.agents, self.grid, self.current_step)
         else:
-            intent = DispatchIntent()
+            intent = AssignmentManifest()
         self.last_intent = intent
 
-        # 3. Coordinator computes all next positions from the intent
+        # 3. Planner computes all next positions from the manifest
         result = self.coordinator.plan(self.agents, self.grid, intent)
 
         # 4. Reject an inapplicable plan before touching the grid, so the
         # lift/place transaction below can never fail halfway through and
         # leave agents off the grid.
-        self._validate(result)
+        self._validate_plan(result)
 
-        # 5. Lift phase: remove moving agents from the grid first
+        # 5. Lift phase: unindex moving agents from the grid first
         # so they do not artificially block each other
         moving_agents = []
         for agent in self.agents:
             target_pos = result.positions.get(agent.agent_id, agent.position)
             if target_pos != agent.position:
                 moving_agents.append((agent, target_pos))
-                self.grid.remove(agent)  # agent leaves its current cell
+                self.grid.unindex(agent)  # agent leaves its current cell
 
         # 6. Place phase: apply movement and put agents back on the grid.
-        # _validate() guarantees every target is free, so place() cannot raise.
+        # _validate_plan() guarantees every target is free, so place() cannot raise.
         for agent, target_pos in moving_agents:
             agent.move_to(target_pos)
             self.grid.place(agent)
@@ -156,4 +157,4 @@ class Simulation:
 
     def __repr__(self) -> str:
         """Input: none. Output: short human-readable state summary."""
-        return f"Simulation(grid={self.grid}, agents={len(self.agents)}, step={self.current_step})"
+        return f"WorldEngine(grid={self.grid}, agents={len(self.agents)}, step={self.current_step})"

@@ -1,20 +1,20 @@
-"""Multi-Robot Task Allocation: tasks, sources, allocation and dispatch.
+"""Multi-Robot Task Allocation: missions, sources, allocation and assignment.
 
-Depends only on core (Agent, Grid, Position, Dispatcher, DispatchIntent) —
-never on algo or client.
+Depends only on core (Agent, SpatialIndex, Coordinates2D, MissionOrchestrator,
+AssignmentManifest) — never on algo or client.
 """
 
-from .task import Task, TaskState
-from .task_source import TaskSource
-from .queue_task_source import QueueTaskSource
-from .random_task_source import RandomTaskSource
-from .scripted_task_source import ScriptedTaskSource
-from .composite_task_source import CompositeTaskSource
-from .allocator import Allocator
-from .fleet_manager import FleetManager
+from .task import Mission, MissionState
+from .task_source import MissionSource
+from .queue_task_source import QueueMissionSource
+from .random_task_source import RandomMissionSource
+from .scripted_task_source import ScriptedMissionSource
+from .composite_task_source import CompositeMissionSource
+from .allocator import AssignmentStrategy
+from .fleet_manager import TaskDrivenOrchestrator
 
 __all__ = [
-    "Task", "TaskState", "TaskSource", "QueueTaskSource",
-    "RandomTaskSource", "ScriptedTaskSource", "CompositeTaskSource",
-    "Allocator", "FleetManager",
+    "Mission", "MissionState", "MissionSource", "QueueMissionSource",
+    "RandomMissionSource", "ScriptedMissionSource", "CompositeMissionSource",
+    "AssignmentStrategy", "TaskDrivenOrchestrator",
 ]

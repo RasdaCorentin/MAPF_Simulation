@@ -1,38 +1,40 @@
 from typing import Optional, TYPE_CHECKING
 
-from ..entities.position import Position
-from .dispatch_intent import DispatchIntent
-from .dispatcher import Dispatcher
+from ..entities.position import Coordinates2D
+from .dispatch_intent import AssignmentManifest
+from .dispatcher import MissionOrchestrator
 
 if TYPE_CHECKING:
     from ..entities.agent import Agent
-    from ..environment.grid import Grid
+    from ..environment.grid import SpatialIndex
 
 
-class StaticDispatcher(Dispatcher):
-    """Trivial dispatcher: always returns the same fixed intent.
+class FixedGoalDispatcher(MissionOrchestrator):
+    """Trivial mission orchestrator: always returns the same fixed manifest.
 
     Fallback for scenarios that do not need task allocation (MRTA): fixed
     goals and optional priorities are configured once at construction, and
-    the same immutable ``DispatchIntent`` is returned on every tick.
+    the same immutable ``AssignmentManifest`` is returned on every tick.
     """
 
     def __init__(
         self,
-        goals: dict[int, Position],
+        goals: dict[int, Coordinates2D],
         priorities: Optional[dict[int, float]] = None,
     ) -> None:
-        """Input: fixed goals (agent_id -> Position) and optional fixed
-        priorities (agent_id -> float).
+        """Input: fixed goals (agent_id -> Coordinates2D) and optional
+        fixed priorities (agent_id -> float).
         Output: None.
         """
-        self._intent = DispatchIntent(
+        self._intent = AssignmentManifest(
             goals=dict(goals),
             priorities=dict(priorities) if priorities is not None else {},
         )
 
-    def dispatch(self, agents: "list[Agent]", grid: "Grid", step: int) -> DispatchIntent:
+    def assign_missions(
+        self, agents: "list[Agent]", grid: "SpatialIndex", step: int
+    ) -> AssignmentManifest:
         """Input: agents, grid, step (all ignored).
-        Output: the same fixed DispatchIntent, every tick.
+        Output: the same fixed AssignmentManifest, every tick.
         """
         return self._intent

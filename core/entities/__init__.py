@@ -1,8 +1,8 @@
 """Entities placed on the grid: positions, world entities and agents."""
 
-from .position import Position
-from .entity import WorldEntity
+from .position import Coordinates2D, manhattan_distance
+from .entity import SpatialEntity
 from .agent import Agent
-from .zone import Zone
+from .zone import NamedRegion
 
-__all__ = ["Position", "WorldEntity", "Agent", "Zone"]
+__all__ = ["Coordinates2D", "manhattan_distance", "SpatialEntity", "Agent", "NamedRegion"]

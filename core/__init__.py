@@ -1,15 +1,15 @@
 """Pure simulation engine — no rendering or algorithm dependencies."""
 
-from .entities import Position, WorldEntity, Agent, Zone
-from .environment import Grid
+from .entities import Coordinates2D, manhattan_distance, SpatialEntity, Agent, NamedRegion
+from .environment import SpatialIndex
 from .engine import (
-    Coordinator, PlanResult, DispatchIntent,
-    Dispatcher, StaticDispatcher, Simulation,
+    PathPlanner, StepOutcome, AssignmentManifest,
+    MissionOrchestrator, FixedGoalDispatcher, WorldEngine,
 )
 
 __all__ = [
-    "Position", "WorldEntity", "Agent", "Zone",
-    "Grid", "Simulation",
-    "Coordinator", "PlanResult", "DispatchIntent",
-    "Dispatcher", "StaticDispatcher",
+    "Coordinates2D", "manhattan_distance", "SpatialEntity", "Agent", "NamedRegion",
+    "SpatialIndex", "WorldEngine",
+    "PathPlanner", "StepOutcome", "AssignmentManifest",
+    "MissionOrchestrator", "FixedGoalDispatcher",
 ]

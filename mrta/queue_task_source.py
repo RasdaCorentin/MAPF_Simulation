@@ -1,17 +1,18 @@
-from .task import Task
-from .task_source import TaskSource
+from .task import Mission
+from .task_source import MissionSource
 
 
-class QueueTaskSource(TaskSource):
-    """Task source fed from the outside: a queue drained once per poll.
+class QueueMissionSource(MissionSource):
+    """Mission source fed from the outside: a queue drained once per fetch.
 
     The bridge between an interactive caller (a UI sending a batch of
-    agents somewhere) and the dispatch loop. The caller pushes tasks
-    whenever it likes; ``poll()`` hands over everything queued since the
-    last cycle and empties the queue, so no task is ever delivered twice.
+    agents somewhere) and the assignment loop. The caller pushes missions
+    whenever it likes; ``fetch_new_missions()`` hands over everything
+    queued since the last cycle and empties the queue, so no mission is
+    ever delivered twice.
 
-    Pushed tasks need no meaningful ``task_id``: FleetManager stamps a
-    unique one at intake, so several sources can coexist without
+    Pushed missions need no meaningful ``task_id``: TaskDrivenOrchestrator
+    stamps a unique one at intake, so several sources can coexist without
     numbering into each other.
     """
 
@@ -19,25 +20,25 @@ class QueueTaskSource(TaskSource):
         """Input: none.
         Output: None. Starts with an empty queue.
         """
-        self._queue: list[Task] = []
+        self._queue: list[Mission] = []
 
-    def push(self, task: Task) -> None:
-        """Input: a task to deliver at the next poll.
+    def push(self, task: Mission) -> None:
+        """Input: a mission to deliver at the next fetch.
         Output: None.
         """
         self._queue.append(task)
 
-    def push_many(self, tasks: list[Task]) -> None:
-        """Input: tasks to deliver at the next poll.
+    def push_many(self, tasks: list[Mission]) -> None:
+        """Input: missions to deliver at the next fetch.
         Output: None.
         """
         self._queue.extend(tasks)
 
-    def poll(self, current_step: int) -> list[Task]:
+    def fetch_new_missions(self, current_step: int) -> list[Mission]:
         """Input: the current simulation step (unused — availability is
         decided by the caller, not by a schedule).
-        Output: every task queued since the last poll; the queue is left
-        empty.
+        Output: every mission queued since the last fetch; the queue is
+        left empty.
         """
         drained, self._queue = self._queue, []
         return drained

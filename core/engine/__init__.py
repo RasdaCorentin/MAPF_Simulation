@@ -1,13 +1,13 @@
 """Simulation engine: the step loop, the coordination interface and its DTOs."""
 
-from .plan_result import PlanResult
-from .dispatch_intent import DispatchIntent
-from .coordinator import Coordinator
-from .dispatcher import Dispatcher
-from .static_dispatcher import StaticDispatcher
-from .simulation import Simulation
+from .plan_result import StepOutcome
+from .dispatch_intent import AssignmentManifest
+from .coordinator import PathPlanner
+from .dispatcher import MissionOrchestrator
+from .static_dispatcher import FixedGoalDispatcher
+from .simulation import WorldEngine
 
 __all__ = [
-    "PlanResult", "DispatchIntent", "Coordinator",
-    "Dispatcher", "StaticDispatcher", "Simulation",
+    "StepOutcome", "AssignmentManifest", "PathPlanner",
+    "MissionOrchestrator", "FixedGoalDispatcher", "WorldEngine",
 ]

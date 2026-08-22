@@ -1,18 +1,18 @@
-from .position import Position
+from .position import Coordinates2D
 
 
-class WorldEntity:
+class SpatialEntity:
     """Base class for any entity placed on the grid.
 
     Blocking obstacles do not need a dedicated subclass:
-    ``WorldEntity(id, pos, blocks_movement=True)`` is enough.
+    ``SpatialEntity(id, pos, blocks_movement=True)`` is enough.
     Entities with ``appear_at > 0`` are spawned later by the simulation.
     """
 
     def __init__(
         self,
         entity_id: int,
-        position: Position,
+        position: Coordinates2D,
         appear_at: int = 0,
         blocks_movement: bool = False,
         scale: int = 1,
@@ -32,18 +32,18 @@ class WorldEntity:
     def cells(self) -> tuple:
         """Input: none.
         Output: every cell the entity occupies — just its position for
-        everything except a ``Zone``, which covers several.
+        everything except a ``NamedRegion``, which covers several.
 
-        This exists so ``Grid`` can index any entity without knowing
-        which kinds span more than one cell. It is **not** ``scale``: it
-        is an explicit list of cells for *indexing*, whereas ``scale``
-        would be a movement footprint and would require the planner to
-        change with it.
+        This exists so ``SpatialIndex`` can index any entity without
+        knowing which kinds span more than one cell. It is **not**
+        ``scale``: it is an explicit list of cells for *indexing*, whereas
+        ``scale`` would be a movement footprint and would require the
+        planner to change with it.
         """
         return (self.position,)
 
     @property
-    def active(self) -> bool:
+    def is_active(self) -> bool:
         """Input: none.
         Output: True while the entity takes part in the simulation
         (subclasses may override).
