@@ -12,8 +12,9 @@
 1. A code change that adds, removes or reshapes a class, a relation, or a package boundary
    must be mirrored in **every diagram it touches** — not just the one that happens to be open.
    A single seam can appear in several files at once (e.g. a new `Coordinator` subclass belongs
-   in `_model.iuml`/`diagrams.puml`, in `component_diagram.puml` if it changes a package-level
-   seam, and in `Class_Diagram/class_diag_simplified.puml` if it's part of that smaller set).
+   in `Class_Diagram/class_diag_commented.puml`, in `component_diagram.puml` if it changes a
+   package-level seam, and in `Class_Diagram/class_diag_simplified.puml` if it's part of that
+   smaller set).
 2. **The diagram change must be validated by the user before any of the corresponding code is
    implemented.** Propose the diagram edit first, get it confirmed, and only then write the
    code that makes it true. Reconciling the diagram afterwards — "I'll update it once the code
@@ -27,7 +28,7 @@
 
 | Source | Scope | Regenerate with |
 |---|---|---|
-| `_model.iuml` (via `diagrams.puml`) | the architecture: `core`, `mrta`, `algo` | `plantuml diagrammes/diagrams.puml` |
+| `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta`, `algo` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
 | `component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
 | `Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering — plain attributes, no notes | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
 | `Object_Diagram/object_diag_mrta.puml` | instances after one MRTA tick (French) | `plantuml diagrammes/Object_Diagram/object_diag_mrta.puml` |

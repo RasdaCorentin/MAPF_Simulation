@@ -1,31 +1,24 @@
 ' =====================================================================
-'  SHARED MODEL — included by diagrams.puml, never compiled on its own.
+'  Annotated class diagram — self-contained (single file, no !include).
 '
-'  Two renderings are driven by $ANNOTATED:
-'    0 -> simple    : structure only (no stereotypes, no notes)
-'    1 -> annotated : + stereotypes + explanatory notes
-'  Multiplicities and relation labels are kept in BOTH renderings, so
-'  relations stay plain readable PlantUML.
+'  This used to be one of two renderings driven off a shared _model.iuml
+'  (via diagrams.puml, toggled by $ANNOTATED). The "simple" rendering was
+'  dropped as redundant with class_diag_simplified.puml, which already
+'  covers that role as its own hand-curated diagram; $ANNOTATED is kept
+'  and hardcoded to 1 below so this file's content — classes, relations,
+'  stereotypes, notes, legend — stays byte-for-byte what the annotated
+'  rendering already was.
 '
-'  PACKAGE DEPENDENCIES (DAG, no cycle):
-'    mrta -> core
-'    algo -> core, mrta          (concrete implementations)
-'  mrta NEVER imports algo.
+'  Regenerate with:
+'      plantuml diagrammes/Class_Diagram/class_diag_commented.puml
 '
-'  There is currently no package above algo/mrta: the scripting layer that
-'  used to sit here (client/) and the measurement layer built on it
-'  (report/) were removed together — see TODO.md for what wiring a
-'  Simulation now takes, and the project's own notes for why a
-'  replacement was not simply reintroduced under another name.
-'
-'  LAYOUT — Notes are declared INSIDE the package of the class they
-'  annotate, immediately after that class. A note declared at the bottom
-'  of the file is a free node as far as dot is concerned: it gets no
-'  cluster, so it drifts to whatever margin is cheapest and its anchor
-'  line crosses the page. Declared in the cluster, it is laid out WITH
-'  the class it belongs to, which is the only reliable way to keep the
-'  two side by side.
+'  Output:
+'      class_diag_commented.png
 ' =====================================================================
+
+@startuml simulation_class_diagram_commente
+!$ANNOTATED = 1
+title Simulation — Class diagram (annotated: context & design patterns)
 
 skinparam classAttributeIconSize 0
 skinparam classFontSize 13
@@ -474,3 +467,5 @@ legend bottom left
   end — see TODO.md.
 end legend
 !endif
+
+@enduml

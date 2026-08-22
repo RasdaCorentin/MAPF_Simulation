@@ -79,7 +79,7 @@ For the visual overview, see the class diagram:
 | Change the task lifecycle / dispatch loop    | `mrta/fleet_manager.py`                         |
 | Change the grid, entities, or the step loop  | `core/`                                          |
 | Wire a scenario by hand (no scripting layer today) | `sim_many_pibt.py` for the shape           |
-| Update the class diagram                     | `diagrammes/diagrams.puml` (+ `plantuml`)       |
+| Update the class diagram                     | `diagrammes/Class_Diagram/class_diag_commented.puml` (+ `plantuml`) |
 
 ---
 

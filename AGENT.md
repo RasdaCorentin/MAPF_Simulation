@@ -12,7 +12,7 @@ The reference for architecture is the class diagram: when this file, the code an
 disagree, **the diagram arbitrates** — see *Rules and invariants*. It and the two object diagrams
 are imported below so they are always in context; read them, do not re-derive them.
 
-@diagrammes/_model.iuml
+@diagrammes/Class_Diagram/class_diag_commented.puml
 
 @diagrammes/Object_Diagram/object_diag_mrta.puml
 
@@ -116,27 +116,27 @@ break it. When in doubt, the class diagram arbitrates.
 
 - **`core/` must never import `algo/` or `mrta/`** — strictly one-directional dependency.
 - **`mrta/` must never import `algo/`** — it depends only on `core`.
-- **The class diagram is the reference.** When code and `_model.iuml` disagree, the default is to
-  change the *code* so the diagram becomes true; amend the model only when it is genuinely wrong.
-  The component and object diagrams follow the class diagram, never the reverse.
-- **Diamonds follow one rule** (stated at the top of `_model.iuml`): filled for an immutable value
-  or a mutable object with a single exclusive owner, hollow for a shared mutable instance.
+- **The class diagram is the reference.** When code and `class_diag_commented.puml` disagree, the
+  default is to change the *code* so the diagram becomes true; amend the diagram only when it is
+  genuinely wrong. The component and object diagrams follow the class diagram, never the reverse.
+- **Diamonds follow one rule** (stated at the top of `class_diag_commented.puml`): filled for an
+  immutable value or a mutable object with a single exclusive owner, hollow for a shared mutable
+  instance.
 - **Every diagram change is validated before the code that makes it true is written.** See
   [`diagrammes/AGENT.md`](diagrammes/AGENT.md) for the full rule.
-- **Keep the diagrams in sync.** Four sources, each with its own scope:
+- **Keep the diagrams in sync.** Five sources, each with its own scope:
 
   | Source | Scope | Regenerate with |
   |---|---|---|
-  | `diagrammes/_model.iuml` | the architecture (via `diagrams.puml`) | `plantuml diagrammes/diagrams.puml` |
+  | `diagrammes/Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta`, `algo` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
   | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
   | `diagrammes/Object_Diagram/object_diag_mrta.puml` | instances after one MRTA tick (French) | `plantuml diagrammes/Object_Diagram/object_diag_mrta.puml` |
   | `diagrammes/Object_Diagram/object_diag_static.puml` | same, static mode (French) | `plantuml diagrammes/Object_Diagram/object_diag_static.puml` |
 
-  `diagrams.puml` renders `_model.iuml` twice — simple and annotated — driven by the `$ANNOTATED`
-  preprocessor flag, so the two class diagrams cannot drift apart. Never edit the generated PNGs.
-  There is no sequence diagram: `sequence_tick.puml` was dropped — the tick order it showed is
-  stated on `Simulation` in the class diagram and in [`core/AGENT.md`](core/AGENT.md).
+  Never edit the generated PNGs. There is no sequence diagram: `sequence_tick.puml` was dropped —
+  the tick order it showed is stated on `Simulation` in the class diagram and in
+  [`core/AGENT.md`](core/AGENT.md).
 
 ### Invariants — properties the code already maintains
 

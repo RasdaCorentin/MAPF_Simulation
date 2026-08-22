@@ -3,9 +3,9 @@
 ' =====================================================================
 '  COMPONENT VIEW — the 30-second read of the architecture.
 '
-'  Derived from _model.iuml, which stays the reference: this diagram
-'  adds nothing, it only drops everything that is not a package
-'  boundary or a seam between two packages.
+'  Derived from Class_Diagram/class_diag_commented.puml, which stays the
+'  reference: this diagram adds nothing, it only drops everything that
+'  is not a package boundary or a seam between two packages.
 '
 '  What it is FOR: showing that the dependency graph is a DAG, and that
 '  the two engine seams (Coordinator, Dispatcher) are what keep it one.
