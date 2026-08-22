@@ -8,7 +8,7 @@
 '  is not a package boundary or a seam between two packages.
 '
 '  What it is FOR: showing that the dependency graph is a DAG, and that
-'  the two engine seams (Coordinator, Dispatcher) are what keep it one.
+'  the two engine seams (PathPlanner, MissionOrchestrator) are what keep it one.
 '  Every arrow points DOWN, towards something more abstract or more
 '  foundational — that is the whole design in one picture.
 '
@@ -39,8 +39,8 @@ skinparam NoteBorderColor #C9B458
 component "**mrta**\nwho does what" as mrta #FFF0F5
 
 ' ── Layer 2 — the engine seams, declared by core ──────────────────
-interface "Coordinator" as ICoord
-interface "Dispatcher" as IDisp
+interface "PathPlanner" as ICoord
+interface "MissionOrchestrator" as IDisp
 
 ' ── Layer 3 — the foundation ──────────────────────────────────────
 component "**core**\nworld · grid · tick" as core #EAF4FF
@@ -51,7 +51,7 @@ component "**core**\nworld · grid · tick" as core #EAF4FF
 ' =====================================================================
 
 ' mrta plugs into the seam core declares for it. Nothing plugs into
-' Coordinator at all right now — algo/ used to, and is gone.
+' PathPlanner at all right now — algo/ used to, and is gone.
 mrta ..down.> IDisp : implements
 
 mrta -down-> core : uses
@@ -63,11 +63,12 @@ IDisp  -down- core
 
 note bottom of core
   **No caller, no algorithm drawn — on purpose**
-  Something still has to wire a Grid, agents and a Coordinator (and a
-  FleetManager in MRTA mode) to actually run this, and something still
-  has to implement Coordinator in the first place. Both used to exist —
-  client/ wired scenarios, algo/ implemented Coordinator and Allocator —
-  and both were removed. Nothing stands in their place yet — see
+  Something still has to wire a SpatialIndex, agents and a PathPlanner
+  (and a TaskDrivenOrchestrator in MRTA mode) to actually run this, and
+  something still has to implement PathPlanner in the first place. Both
+  used to exist — client/ wired scenarios, algo/ implemented PathPlanner
+  and AssignmentStrategy — and both were removed. Nothing stands in
+  their place yet — see
   TODO.md and the project's own notes on why a replacement was not
   simply reintroduced under another name.
 end note

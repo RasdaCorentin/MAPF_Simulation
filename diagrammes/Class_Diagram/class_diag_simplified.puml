@@ -15,123 +15,123 @@ skinparam PackageBackgroundColor #F8F8F8
 package "core" #EAF4FF {
 
     package "entities" {
-        class Position {
+        class Coordinates2D {
             + x : int
             + y : int
             --
-            + __add__(other: Position) : Position
+            + __add__(other: Coordinates2D) : Coordinates2D
         }
 
-        abstract class WorldEntity {
+        abstract class SpatialEntity {
             + entity_id       : int
-            + position        : Position
+            + position        : Coordinates2D
             + appear_at       : int
             + blocks_movement : bool
             --
-            + active : bool
+            + is_active : bool
         }
 
         class Agent {
             + agent_id    : int
             + steps_taken : int
             --
-            + move_to(new_position: Position) : void
+            + move_to(new_position: Coordinates2D) : void
         }
 
-        class Zone {
+        class NamedRegion {
             + name  : str
-            + cells : tuple[Position]
+            + cells : tuple[Coordinates2D]
             --
-            + contains(position: Position) : bool
+            + contains(position: Coordinates2D) : bool
         }
     }
 
     package "environment" {
-        class Grid {
+        class SpatialIndex {
             + width  : int
             + height : int
             --
-            + is_valid(position: Position) : bool
-            + is_blocked(position: Position) : bool
-            + place(entity: WorldEntity) : void
-            + remove(entity: WorldEntity) : void
-            + get_agent_at(position: Position) : Agent | None
+            + is_within_bounds(position: Coordinates2D) : bool
+            + is_blocked(position: Coordinates2D) : bool
+            + place(entity: SpatialEntity) : void
+            + unindex(entity: SpatialEntity) : void
+            + agent_at(position: Coordinates2D) : Agent | None
         }
     }
 
     package "engine" {
-        class Simulation {
-            + grid         : Grid
+        class WorldEngine {
+            + grid         : SpatialIndex
             + agents       : list[Agent]
-            + coordinator  : Coordinator
-            + dispatcher   : Dispatcher | None
+            + coordinator  : PathPlanner
+            + dispatcher   : MissionOrchestrator | None
             + current_step : int
             --
-            + add_agent(agent: Agent) : void
-            + add_object(entity: WorldEntity) : void
-            + step() : PlanResult
+            + register_agent(agent: Agent) : void
+            + spawn_static_obstacle(entity: SpatialEntity) : void
+            + advance_time_step() : StepOutcome
         }
 
-        abstract class Coordinator {
-            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        abstract class PathPlanner {
+            + plan(agents: list[Agent], grid: SpatialIndex, intent: AssignmentManifest) : StepOutcome
         }
 
-        abstract class Dispatcher {
-            + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        abstract class MissionOrchestrator {
+            + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
         }
     }
 }
 
 package "mrta" #FFF0F5 {
 
-    enum TaskState {
+    enum MissionState {
         PENDING
         ASSIGNED
         DONE
         FAILED
     }
 
-    class Task {
+    class Mission {
         + task_id  : int
-        + target   : Position
+        + target   : Coordinates2D
         + priority : float
-        + state    : TaskState
+        + state    : MissionState
         + assignee : Agent | None
     }
 
-    abstract class TaskSource {
-        + poll(current_step: int) : list[Task]
+    abstract class MissionSource {
+        + fetch_new_missions(current_step: int) : list[Mission]
     }
 
-    abstract class Allocator {
-        + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
+    abstract class AssignmentStrategy {
+        + match_missions_to_units(pending: list[Mission], free: list[Agent], grid: SpatialIndex) : dict[Mission, Agent]
     }
 
-    class FleetManager {
-        + source    : TaskSource
-        + allocator : Allocator
-        + tasks     : list[Task]
+    class TaskDrivenOrchestrator {
+        + source    : MissionSource
+        + allocator : AssignmentStrategy
+        + tasks     : list[Mission]
         --
-        + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
     }
 }
 
 ' ── Simplified High-Level Relations ─────────────────────────────
 
-WorldEntity <|-- Agent
-WorldEntity <|-- Zone
-WorldEntity *-- Position
-Grid o-- WorldEntity
-Simulation *-- Grid
-Simulation *-- Agent
-Simulation *-- Coordinator
-Simulation *-- Dispatcher
+SpatialEntity <|-- Agent
+SpatialEntity <|-- NamedRegion
+SpatialEntity *-- Coordinates2D
+SpatialIndex o-- SpatialEntity
+WorldEngine *-- SpatialIndex
+WorldEngine *-- Agent
+WorldEngine *-- PathPlanner
+WorldEngine *-- MissionOrchestrator
 
-Task *-- TaskState
+Mission *-- MissionState
 
-Dispatcher <|-- FleetManager
-FleetManager o-- TaskSource
-FleetManager o-- Allocator
-FleetManager *-- Task
+MissionOrchestrator <|-- TaskDrivenOrchestrator
+TaskDrivenOrchestrator o-- MissionSource
+TaskDrivenOrchestrator o-- AssignmentStrategy
+TaskDrivenOrchestrator *-- Mission
 
 @enduml

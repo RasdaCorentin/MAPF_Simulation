@@ -47,42 +47,42 @@ skinparam linetype ortho
 package "core" #EAF4FF {
 
     package "entities" {
-        class Position $st("value object") {
+        class Coordinates2D $st("value object") {
             + x : int
             + y : int
             --
-            + __add__(other: Position) : Position
+            + __add__(other: Coordinates2D) : Coordinates2D
         }
 
-        class WorldEntity {
+        class SpatialEntity {
             + entity_id       : int
-            + position        : Position
+            + position        : Coordinates2D
             + appear_at       : int
             + blocks_movement : bool
             + scale           : int = 1
             --
-            + active : bool
+            + is_active : bool
         }
 
         class Agent {
             + agent_id    : int
             + steps_taken : int
             --
-            + move_to(new_position: Position) : void
+            + move_to(new_position: Coordinates2D) : void
         }
 
-        class Zone {
+        class NamedRegion {
             + name  : str
-            + cells : tuple[Position]
+            + cells : tuple[Coordinates2D]
             --
-            + contains(position: Position) : bool
+            + contains(position: Coordinates2D) : bool
         }
         !if $ANNOTATED == 1
-        note bottom of Zone
+        note bottom of NamedRegion
           **A named region — "send the fleet to the loading station"**
           A group of cells the operator can address by name instead of
           by coordinates: loading station, working space, empty-rack
-          area. Like any WorldEntity it can spawn late and go inactive;
+          area. Like any SpatialEntity it can spawn late and go inactive;
           unlike the others it covers several cells, so the grid knows
           it at each of them rather than at a single corner.
         end note
@@ -90,57 +90,57 @@ package "core" #EAF4FF {
     }
 
     package "environment" {
-        class Grid {
+        class SpatialIndex {
             + width  : int
             + height : int
-            - _agents : dict[Position, Agent]
-            - _static : dict[Position, list[WorldEntity]]
+            - _agents : dict[Coordinates2D, Agent]
+            - _static : dict[Coordinates2D, list[SpatialEntity]]
             --
-            + is_valid(position: Position) : bool
-            + is_blocked(position: Position) : bool
-            + place(entity: WorldEntity) : void
-            + remove(entity: WorldEntity) : void
-            + get_agent_at(position: Position) : Agent | None
+            + is_within_bounds(position: Coordinates2D) : bool
+            + is_blocked(position: Coordinates2D) : bool
+            + place(entity: SpatialEntity) : void
+            + unindex(entity: SpatialEntity) : void
+            + agent_at(position: Coordinates2D) : Agent | None
         }
     }
 
     package "engine" {
-        class PlanResult $st("DTO") {
-            + positions   : dict[int, Position]
+        class StepOutcome $st("DTO") {
+            + positions   : dict[int, Coordinates2D]
             + moves       : dict[int, tuple]
             + order       : list[int]
             + inheritance : list[tuple]
             + priorities  : dict[int, float]
         }
 
-        class DispatchIntent $st("DTO") {
-            + goals      : dict[int, Position]
+        class AssignmentManifest $st("DTO") {
+            + goals      : dict[int, Coordinates2D]
             + priorities : dict[int, float]
         }
         !if $ANNOTATED == 1
-        note bottom of DispatchIntent
+        note bottom of AssignmentManifest
           **The only channel between the two sides**
           One tick's complete answer to "where should everyone go?" —
           a goal and an optional priority per agent, frozen.
-          Nothing else may set a coordinator's goals, so any Dispatcher
-          pairs with any Coordinator, and every tick leaves an
+          Nothing else may set a planner's goals, so any MissionOrchestrator
+          pairs with any PathPlanner, and every tick leaves an
           auditable record of what was asked.
         end note
         !endif
 
-        abstract class Coordinator $st("Strategy") {
-            + {abstract} plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
+        abstract class PathPlanner $st("Strategy") {
+            + {abstract} plan(agents: list[Agent], grid: SpatialIndex, intent: AssignmentManifest) : StepOutcome
         }
 
-        abstract class Dispatcher $st("Strategy") {
-            + {abstract} dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+        abstract class MissionOrchestrator $st("Strategy") {
+            + {abstract} assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
         }
         !if $ANNOTATED == 1
-        note bottom of Dispatcher
+        note bottom of MissionOrchestrator
           **The two questions of the simulation, kept apart**
-          Dispatcher answers WHERE each robot should go — a business
-          decision: which job matters, who is free.
-          Coordinator answers HOW they get there — a geometric one:
+          MissionOrchestrator answers WHERE each robot should go — a
+          business decision: which job matters, who is free.
+          PathPlanner answers HOW they get there — a geometric one:
           paths and collisions.
           Both are abstract and live in core, so the engine runs a tick
           without knowing that task allocation or PIBT exist. Swap
@@ -148,37 +148,37 @@ package "core" #EAF4FF {
         end note
         !endif
 
-        class StaticDispatcher {
-            - _intent : DispatchIntent
+        class FixedGoalDispatcher {
+            - _intent : AssignmentManifest
             --
-            + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
+            + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
         }
 
-        class Simulation {
-            + grid         : Grid
+        class WorldEngine {
+            + grid         : SpatialIndex
             + agents       : list[Agent]
-            + entities     : list[WorldEntity]
-            - _pending     : list[WorldEntity]
+            + entities     : list[SpatialEntity]
+            - _pending     : list[SpatialEntity]
             + current_step : int
-            + coordinator  : Coordinator
-            + dispatcher   : Dispatcher | None
-            + last_intent  : DispatchIntent
+            + coordinator  : PathPlanner
+            + dispatcher   : MissionOrchestrator | None
+            + last_intent  : AssignmentManifest
             --
-            + add_agent(agent: Agent) : void
-            + add_object(entity: WorldEntity) : void
-            + step() : PlanResult
+            + register_agent(agent: Agent) : void
+            + spawn_static_obstacle(entity: SpatialEntity) : void
+            + advance_time_step() : StepOutcome
         }
         !if $ANNOTATED == 1
-        note top of Simulation
+        note top of WorldEngine
           **The engine — one tick of the world**
           Every step runs the same three phases, in this order:
-            1. **dispatch** — ask the Dispatcher where each agent goes
-            2. **plan**     — ask the Coordinator how to move them there
-            3. **move**     — apply the plan to the grid
+            1. **assign missions** — ask the MissionOrchestrator where each agent goes
+            2. **plan**            — ask the PathPlanner how to move them there
+            3. **move**            — apply the plan to the grid
           Because the engine owns that order, goals can never be stale
-          and a caller cannot plan before dispatching. All agents move
-          inside one transaction, so two of them can swap cells without
-          either seeing the grid half-updated.
+          and a caller cannot plan before assigning missions. All agents
+          move inside one transaction, so two of them can swap cells
+          without either seeing the grid half-updated.
         end note
         !endif
     }
@@ -189,18 +189,18 @@ package "core" #EAF4FF {
 ' =====================================================================
 package "mrta" #FFF0F5 {
 
-    enum TaskState {
+    enum MissionState {
         PENDING
         ASSIGNED
         DONE
         FAILED
     }
 
-    class Task {
+    class Mission {
         + task_id               : int
-        + target                : Position
+        + target                : Coordinates2D
         + priority              : float
-        + state                 : TaskState
+        + state                 : MissionState
         + assignee              : Agent | None
         + created_step          : int
         + eligible              : frozenset[int] | None
@@ -209,96 +209,96 @@ package "mrta" #FFF0F5 {
         + last_improvement_step : int
     }
 
-    abstract class TaskSource $st("Strategy") {
-        + {abstract} poll(current_step: int) : list[Task]
+    abstract class MissionSource $st("Strategy") {
+        + {abstract} fetch_new_missions(current_step: int) : list[Mission]
     }
     !if $ANNOTATED == 1
-    note left of TaskSource
+    note left of MissionSource
       **Where the work comes from**
       A run can be fed by a human, a generator or a script — the fleet
       does not care which:
-        QueueTaskSource     — pushed from outside (a click, a script)
-        RandomTaskSource    — seeded background load, for benchmarks
-        ScriptedTaskSource  — a fixed {step: tasks} schedule, for tests
-        CompositeTaskSource — several at once (manual AND background)
+        QueueMissionSource     — pushed from outside (a click, a script)
+        RandomMissionSource    — seeded background load, for benchmarks
+        ScriptedMissionSource  — a fixed {step: missions} schedule, for tests
+        CompositeMissionSource — several at once (manual AND background)
     end note
     !endif
 
-    class QueueTaskSource {
-        - _queue : list[Task]
+    class QueueMissionSource {
+        - _queue : list[Mission]
         --
-        + push(task: Task) : void
-        + push_many(tasks: list[Task]) : void
-        + poll(current_step: int) : list[Task]
+        + push(task: Mission) : void
+        + push_many(tasks: list[Mission]) : void
+        + fetch_new_missions(current_step: int) : list[Mission]
     }
 
-    class RandomTaskSource {
-        - _grid  : Grid
+    class RandomMissionSource {
+        - _grid  : SpatialIndex
         - _every : int
         - _count : int
         - _rng   : Random
         --
-        + poll(current_step: int) : list[Task]
+        + fetch_new_missions(current_step: int) : list[Mission]
     }
 
-    class ScriptedTaskSource {
-        - _schedule : dict[int, list[Task]]
+    class ScriptedMissionSource {
+        - _schedule : dict[int, list[Mission]]
         --
-        + poll(current_step: int) : list[Task]
+        + fetch_new_missions(current_step: int) : list[Mission]
     }
 
-    class CompositeTaskSource {
-        + sources : list[TaskSource]
+    class CompositeMissionSource {
+        + sources : list[MissionSource]
         --
-        + poll(current_step: int) : list[Task]
+        + fetch_new_missions(current_step: int) : list[Mission]
     }
 
-    abstract class Allocator $st("Strategy") {
-        + {abstract} allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
+    abstract class AssignmentStrategy $st("Strategy") {
+        + {abstract} match_missions_to_units(pending: list[Mission], free: list[Agent], grid: SpatialIndex) : dict[Mission, Agent]
     }
     !if $ANNOTATED == 1
-    note right of Allocator
+    note right of AssignmentStrategy
       **Who takes which job**
       The matching strategy, isolated so variants can be compared:
-      pending tasks and idle robots in, task -> robot pairs out.
+      pending missions and idle robots in, mission -> robot pairs out.
       Whichever implementation is plugged in, it never decides
-      *whether* a robot is allowed to take a job: FleetManager has
-      already filtered that before it calls it.
+      *whether* a robot is allowed to take a job: TaskDrivenOrchestrator
+      has already filtered that before it calls it.
       No concrete implementation exists currently — see TODO.md.
     end note
     !endif
 
-    class FleetManager {
-        + source          : TaskSource
-        + allocator       : Allocator
+    class TaskDrivenOrchestrator {
+        + source          : MissionSource
+        + allocator       : AssignmentStrategy
         + patience        : int
         + max_attempts    : int
-        + tasks           : list[Task]
+        + tasks           : list[Mission]
         + completed_count : int
         + failed_count    : int
         --
-        + dispatch(agents: list[Agent], grid: Grid, step: int) : DispatchIntent
-        + set_priority(task_id: int, priority: float) : void
+        + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+        + set_mission_priority(task_id: int, priority: float) : void
     }
     !if $ANNOTATED == 1
-    note bottom of FleetManager
-      **The fleet's memory — it is the Dispatcher in task mode**
-      Each tick it collects new tasks, marks arrived ones DONE, hands
-      the rest to the Allocator, and publishes the result as a
-      DispatchIntent. A task lives PENDING -> ASSIGNED -> DONE, or
+    note bottom of TaskDrivenOrchestrator
+      **The fleet's memory — it is the MissionOrchestrator in task mode**
+      Each tick it collects new missions, marks arrived ones DONE, hands
+      the rest to the AssignmentStrategy, and publishes the result as an
+      AssignmentManifest. A mission lives PENDING -> ASSIGNED -> DONE, or
       ends FAILED.
 
       **Why FAILED exists.** An assigned agent is no longer available,
-      so a task aiming at an unreachable cell would hold a robot
+      so a mission aiming at an unreachable cell would hold a robot
       hostage forever while the fleet still looked healthy. Two guards
       prevent it:
         at intake — a target off-grid or under an obstacle is rejected
         watchdog  — an assignee that gets no closer for `patience`
-                    steps is released and the task retried; after
-                    `max_attempts` assignees the task is FAILED
+                    steps is released and the mission retried; after
+                    `max_attempts` assignees the mission is FAILED
       Progress is *observed* rather than reachability *proven*:
       obstacles can appear mid-run, so any proof would be stale and
-      would duplicate the planner. Failed tasks are counted, never
+      would duplicate the planner. Failed missions are counted, never
       silently dropped.
     end note
     !endif
@@ -310,69 +310,69 @@ package "mrta" #FFF0F5 {
 '
 '   filled  (*--)  an IMMUTABLE value, held by value — sharing the same
 '                  instance is meaningless, so ownership is moot
-'                  (Position, DispatchIntent, PlanResult) —
+'                  (Coordinates2D, AssignmentManifest, StepOutcome) —
 '                  or a MUTABLE object with a single, exclusive owner
-'                  (Simulation's entities, FleetManager's tasks).
+'                  (WorldEngine's entities, TaskDrivenOrchestrator's tasks).
 '   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
 '                  reads or indexes it; something else governs its life.
 '
-' The two edges that changed under this rule are Grid -> WorldEntity and
-' Simulation -> Grid; see the comments on each.
+' The two edges that changed under this rule are SpatialIndex -> SpatialEntity
+' and WorldEngine -> SpatialIndex; see the comments on each.
 
 ' ── Inheritance & entities ────────────────────────────────────────
-WorldEntity <|-- Agent
-WorldEntity <|-- Zone
-WorldEntity "1" *-- "1" Position : position
-' Filled diamond: Position is immutable, so sharing an instance is
+SpatialEntity <|-- Agent
+SpatialEntity <|-- NamedRegion
+SpatialEntity "1" *-- "1" Coordinates2D : position
+' Filled diamond: Coordinates2D is immutable, so sharing an instance is
 ' meaningless and ownership is moot — the same rule as above.
-Zone "1" *-- "1..*" Position : cells
+NamedRegion "1" *-- "1..*" Coordinates2D : cells
 
-' ── Grid ──────────────────────────────────────────────────────────
-' Aggregation, not composition: Grid is a spatial INDEX, not a store.
-' An entity lives in Simulation.entities (and in _pending, before the
-' grid has ever seen it), and grid.remove(agent) during the lift phase
-' of a step does not end its life — it un-indexes it for a few lines.
-' A filled diamond here would claim the opposite, and would also
-' contradict Simulation *-- WorldEntity just below: two exclusive
+' ── SpatialIndex ──────────────────────────────────────────────────
+' Aggregation, not composition: SpatialIndex is a spatial INDEX, not a
+' store. An entity lives in WorldEngine.entities (and in _pending, before
+' the grid has ever seen it), and grid.unindex(agent) during the lift
+' phase of a step does not end its life — it un-indexes it for a few
+' lines. A filled diamond here would claim the opposite, and would also
+' contradict WorldEngine *-- SpatialEntity just below: two exclusive
 ' owners of one object cannot both be right.
-Grid "1" o-- "0..*" WorldEntity : "> index"
+SpatialIndex "1" o-- "0..*" SpatialEntity : "> index"
 
 ' ── Engine: simulation loop ───────────────────────────────────────
-' Aggregation: whatever builds the scenario hands the same Grid
-' instance to Simulation and to RandomTaskSource, which reads it to
-' find free cells. Simulation drives the grid; it does not own it
+' Aggregation: whatever builds the scenario hands the same SpatialIndex
+' instance to WorldEngine and to RandomMissionSource, which reads it to
+' find free cells. WorldEngine drives the grid; it does not own it
 ' exclusively.
-Simulation "1" o-- "1" Grid           : grid
-Simulation "1" *-- "0..*" WorldEntity : entities
-Simulation "1" o-- "1" Coordinator    : coordinator
-Simulation "1" o-- "0..1" Dispatcher  : dispatcher (optional)
-Simulation "1" *-- "1" DispatchIntent : last_intent
-Coordinator ..> PlanResult : «returns»
-Coordinator ..> DispatchIntent : «reads»
+WorldEngine "1" o-- "1" SpatialIndex        : grid
+WorldEngine "1" *-- "0..*" SpatialEntity    : entities
+WorldEngine "1" o-- "1" PathPlanner         : coordinator
+WorldEngine "1" o-- "0..1" MissionOrchestrator : dispatcher (optional)
+WorldEngine "1" *-- "1" AssignmentManifest  : last_intent
+PathPlanner ..> StepOutcome : «returns»
+PathPlanner ..> AssignmentManifest : «reads»
 
 ' ── MRTA ──────────────────────────────────────────────────────────
-Task "1" *-- "1" TaskState : state
+Mission "1" *-- "1" MissionState : state
 
-TaskSource <|.. QueueTaskSource
-TaskSource <|.. RandomTaskSource
-TaskSource <|.. ScriptedTaskSource
-TaskSource <|.. CompositeTaskSource
-CompositeTaskSource "1" o-- "1..*" TaskSource : sources
+MissionSource <|.. QueueMissionSource
+MissionSource <|.. RandomMissionSource
+MissionSource <|.. ScriptedMissionSource
+MissionSource <|.. CompositeMissionSource
+CompositeMissionSource "1" o-- "1..*" MissionSource : sources
 
-Dispatcher <|.. FleetManager
-Dispatcher <|.. StaticDispatcher
-Dispatcher ..> DispatchIntent : «returns»
-FleetManager "1" o-- "1" TaskSource : source
-FleetManager "1" o-- "1" Allocator  : allocator
-FleetManager "1" *-- "0..*" Task    : tasks
+MissionOrchestrator <|.. TaskDrivenOrchestrator
+MissionOrchestrator <|.. FixedGoalDispatcher
+MissionOrchestrator ..> AssignmentManifest : «returns»
+TaskDrivenOrchestrator "1" o-- "1" MissionSource      : source
+TaskDrivenOrchestrator "1" o-- "1" AssignmentStrategy : allocator
+TaskDrivenOrchestrator "1" *-- "0..*" Mission         : tasks
 
 ' ── Layout constraint: keep the engine and the fleet adjacent ─────
 ' Declaration order alone is a weak hint — dot re-orders clusters
 ' freely. This hidden edge pins one rank, left to right: the grid, the
 ' engine that advances it, and the fleet that feeds it goals — so core
 ' and mrta land side by side instead of dot picking an arbitrary order.
-Grid -[hidden]right- Simulation
-Simulation -[hidden]right- FleetManager
+SpatialIndex -[hidden]right- WorldEngine
+WorldEngine -[hidden]right- TaskDrivenOrchestrator
 
 ' =====================================================================
 '  Page-level legend — the 30-second read, annotated rendering only.
@@ -386,8 +386,9 @@ legend bottom left
   (coordination). Read the packages in this order:
     **core**   the world (grid, agents) and the tick that advances it
     **mrta**   Multi-Robot Task Allocation — who does what
-  There is currently no concrete Coordinator or Allocator implementation
-  and no supported way to drive or watch a run end to end — see TODO.md.
+  There is currently no concrete PathPlanner or AssignmentStrategy
+  implementation and no supported way to drive or watch a run end to
+  end — see TODO.md.
 end legend
 !endif
 
