@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mapf-mrta"
+version = "0.1.0"
+description = "Multi-Robot Task Allocation: task lifecycle, task sources, the allocator contract, fleet manager."
+requires-python = ">=3.10"
+dependencies = ["mapf-core"]
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["mrta*"]
