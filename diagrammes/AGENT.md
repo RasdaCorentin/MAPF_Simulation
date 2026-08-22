@@ -28,11 +28,16 @@
 
 | Source | Scope | Regenerate with |
 |---|---|---|
-| `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta`, `algo` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
+| `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
 | `component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
 | `Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering — plain attributes, no notes | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
-| `Object_Diagram/object_diag_mrta.puml` | instances after one MRTA tick (French) | `plantuml diagrammes/Object_Diagram/object_diag_mrta.puml` |
-| `Object_Diagram/object_diag_static.puml` | same, static mode (French) | `plantuml diagrammes/Object_Diagram/object_diag_static.puml` |
 
 Never edit a generated PNG. `script_perso.sh` watches a `.puml`/`.iuml` file and regenerates it
 on save, for iterating live.
+
+There is currently no `Object_Diagram/` — both object diagrams modeled a concrete tick
+(`PIBTCoordinator`, `ReservationTable`, `PriorityManager`, `EasiestAllocator`), and the `algo/`
+removal (see `TODO.md`) left nothing to instantiate. Deleted outright rather than kept stale,
+same as `report_diagram.puml` when `report/` went: a diagram that can no longer be true is not
+a record worth keeping under this file's own rule. Reinstate one once a concrete `Coordinator`
+exists again to model a real tick against.

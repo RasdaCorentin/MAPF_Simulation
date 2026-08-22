@@ -13,9 +13,11 @@
 '  foundational — that is the whole design in one picture.
 '
 '  What it deliberately does NOT show: classes, methods, multiplicities.
-'  There is currently nothing above algo/mrta: the scripting layer
-'  (client/) and the measurement layer built on it (report/) were
-'  removed together, and nothing has replaced them yet — see TODO.md.
+'  There is currently nothing above mrta, and mrta itself has nothing
+'  implementing its two seams: the scripting layer (client/), the
+'  measurement layer built on it (report/), and the concrete algorithm
+'  layer (algo/) were all removed, and nothing has replaced any of them
+'  yet — see TODO.md.
 '
 '  LAYOUT: every edge carries an explicit direction and the components
 '  are declared top-down in reading order. Without that, dot lays the
@@ -33,8 +35,7 @@ skinparam InterfaceBackgroundColor #FFF5EA
 skinparam NoteBackgroundColor #FFFDE7
 skinparam NoteBorderColor #C9B458
 
-' ── Layer 1 — the interchangeable parts ───────────────────────────
-component "**algo**\nhow they get there" as algo #F0FFF0
+' ── Layer 1 — the domain layer ─────────────────────────────────────
 component "**mrta**\nwho does what" as mrta #FFF0F5
 
 ' ── Layer 2 — the engine seams, declared by core ──────────────────
@@ -49,18 +50,11 @@ component "**core**\nworld · grid · tick" as core #EAF4FF
 '  abstraction it does not own.
 ' =====================================================================
 
-' The two implementations plug into the seams core declares.
-algo ..down.> ICoord : implements
-mrta ..down.> IDisp  : implements
+' mrta plugs into the seam core declares for it. Nothing plugs into
+' Coordinator at all right now — algo/ used to, and is gone.
+mrta ..down.> IDisp : implements
 
-' Plain dependencies, no inversion: these simply use the types below.
-' Labels are VERBS, never type names. An arrow here says who depends on
-' whom; a bare "Task" sitting on the line reads as cargo instead, and
-' the reader infers the supplier is at the tail — the exact opposite of
-' what the arrow means.
-algo -right-> mrta : "uses Allocator, Task"
-algo -down-> core  : uses
-mrta -down-> core  : uses
+mrta -down-> core : uses
 
 ' core owns the two engine seams: it declares them and calls them,
 ' without ever knowing who implements them.
@@ -68,12 +62,14 @@ ICoord -down- core
 IDisp  -down- core
 
 note bottom of core
-  **No caller drawn on purpose**
+  **No caller, no algorithm drawn — on purpose**
   Something still has to wire a Grid, agents and a Coordinator (and a
-  FleetManager in MRTA mode) to actually run this. That used to be
-  client/, removed along with report/ in the same refactor. Nothing
-  stands in its place yet — see TODO.md and the project's own notes on
-  why a replacement was not simply reintroduced under another name.
+  FleetManager in MRTA mode) to actually run this, and something still
+  has to implement Coordinator in the first place. Both used to exist —
+  client/ wired scenarios, algo/ implemented Coordinator and Allocator —
+  and both were removed. Nothing stands in their place yet — see
+  TODO.md and the project's own notes on why a replacement was not
+  simply reintroduced under another name.
 end note
 
 legend bottom left
@@ -83,7 +79,7 @@ legend bottom left
     solid   A uses B's types directly
     dashed  A plugs into an abstraction it does not own
   The interfaces are where the graph would otherwise cycle: without
-  them core would have to import algo.
+  them core would have to import a concrete algorithm.
 end legend
 
 @enduml

@@ -116,34 +116,6 @@ package "mrta" #FFF0F5 {
     }
 }
 
-package "algo" #F0FFF0 {
-
-    package "coordination" {
-        class RandomWalkCoordinator {
-            --
-            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
-        }
-
-        class PIBTCoordinator {
-            + goals : dict[Agent, Position]
-            --
-            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
-        }
-    }
-
-    package "allocation" {
-        class RandomAllocator {
-            --
-            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
-        }
-
-        class EasiestAllocator {
-            --
-            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
-        }
-    }
-}
-
 ' ── Simplified High-Level Relations ─────────────────────────────
 
 WorldEntity <|-- Agent
@@ -156,12 +128,6 @@ Simulation *-- Coordinator
 Simulation *-- Dispatcher
 
 Task *-- TaskState
-
-Coordinator <|-- RandomWalkCoordinator
-Coordinator <|-- PIBTCoordinator
-
-Allocator <|-- RandomAllocator
-Allocator <|-- EasiestAllocator
 
 Dispatcher <|-- FleetManager
 FleetManager o-- TaskSource

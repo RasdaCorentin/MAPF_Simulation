@@ -261,10 +261,10 @@ package "mrta" #FFF0F5 {
       **Who takes which job**
       The matching strategy, isolated so variants can be compared:
       pending tasks and idle robots in, task -> robot pairs out.
-        EasiestAllocator — the nearest free robot wins (default)
-        RandomAllocator  — no notion of distance, the baseline
-      Neither one decides *whether* a robot is allowed to take a job:
-      FleetManager has already filtered that before it calls them.
+      Whichever implementation is plugged in, it never decides
+      *whether* a robot is allowed to take a job: FleetManager has
+      already filtered that before it calls it.
+      No concrete implementation exists currently — see TODO.md.
     end note
     !endif
 
@@ -302,71 +302,6 @@ package "mrta" #FFF0F5 {
       silently dropped.
     end note
     !endif
-}
-
-' =====================================================================
-'  algo — the interchangeable algorithms plugged into core
-' =====================================================================
-package "algo" #F0FFF0 {
-
-    package "coordination" {
-        class RandomWalkCoordinator {
-            --
-            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
-        }
-
-        class ReservationTable {
-            - _reserved : dict[Position, Agent]
-            --
-            + reserve(agent: Agent, pos: Position) : void
-            + release(agent: Agent) : void
-        }
-
-        class PriorityManager {
-            - _base    : dict[Agent, float]
-            - _dynamic : dict[Agent, float]
-            --
-            + update(agents: list[Agent]) : void
-            + get_priority(agent: Agent) : float
-            + set_base(agent: Agent, p: float) : void
-        }
-
-        class PIBTCoordinator {
-            + goals         : dict[Agent, Position]
-            - _reservations : ReservationTable
-            - _priorities   : PriorityManager
-            --
-            + plan(agents: list[Agent], grid: Grid, intent: DispatchIntent) : PlanResult
-        }
-        !if $ANNOTATED == 1
-        note right of PIBTCoordinator
-          **PIBT — Priority Inheritance with Backtracking**
-          (Okumura et al., 2022) — the default MAPF algorithm.
-          Agents are served in priority order; each claims the free
-          neighbouring cell closest to its goal.
-          If that cell is held by a lower-priority agent, that agent
-          *inherits* the caller's priority and is asked to move first
-          (inheritance); if it has nowhere to go, the caller falls back
-          to its next-best cell (backtracking).
-          Priorities decay every step, so no agent starves.
-          The two helper classes keep the algorithm readable: who
-          booked which cell (ReservationTable) and who outranks whom
-          (PriorityManager).
-        end note
-        !endif
-    }
-
-    package "allocation" {
-        class RandomAllocator {
-            --
-            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
-        }
-
-        class EasiestAllocator {
-            --
-            + allocate(pending: list[Task], free: list[Agent], grid: Grid) : dict[Task, Agent]
-        }
-    }
 }
 
 ' ── Diamond convention ────────────────────────────────────────────
@@ -415,19 +350,8 @@ Simulation "1" *-- "1" DispatchIntent : last_intent
 Coordinator ..> PlanResult : «returns»
 Coordinator ..> DispatchIntent : «reads»
 
-' ── Coordinator hierarchy (Strategy) ──────────────────────────────
-Coordinator <|.. RandomWalkCoordinator
-Coordinator <|.. PIBTCoordinator
-
-' ── PIBT decomposition (Extract-Class) ────────────────────────────
-PIBTCoordinator "1" *-- "1" ReservationTable : _reservations
-PIBTCoordinator "1" *-- "1" PriorityManager  : _priorities
-
 ' ── MRTA ──────────────────────────────────────────────────────────
 Task "1" *-- "1" TaskState : state
-
-Allocator <|.. RandomAllocator
-Allocator <|.. EasiestAllocator
 
 TaskSource <|.. QueueTaskSource
 TaskSource <|.. RandomTaskSource
@@ -462,9 +386,8 @@ legend bottom left
   (coordination). Read the packages in this order:
     **core**   the world (grid, agents) and the tick that advances it
     **mrta**   Multi-Robot Task Allocation — who does what
-    **algo**   the interchangeable algorithms plugged into core
-  There is currently no supported way to drive or watch a run end to
-  end — see TODO.md.
+  There is currently no concrete Coordinator or Allocator implementation
+  and no supported way to drive or watch a run end to end — see TODO.md.
 end legend
 !endif
 
