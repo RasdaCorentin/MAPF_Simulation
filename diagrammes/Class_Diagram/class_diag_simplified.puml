@@ -22,7 +22,7 @@ package "core" #EAF4FF {
             + __add__(other: Coordinates2D) : Coordinates2D
         }
 
-        abstract class SpatialEntity {
+        abstract class WorldEntity {
             + entity_id       : int
             + position        : Coordinates2D
             + appear_at       : int
@@ -38,46 +38,40 @@ package "core" #EAF4FF {
             + move_to(new_position: Coordinates2D) : void
         }
 
-        class NamedRegion {
-            + name  : str
-            + cells : tuple[Coordinates2D]
-            --
-            + contains(position: Coordinates2D) : bool
-        }
     }
 
     package "environment" {
-        class SpatialIndex {
+        class Grid2D {
             + width  : int
             + height : int
             --
             + is_within_bounds(position: Coordinates2D) : bool
             + is_blocked(position: Coordinates2D) : bool
-            + place(entity: SpatialEntity) : void
-            + unindex(entity: SpatialEntity) : void
+            + place(entity: WorldEntity) : void
+            + unindex(entity: WorldEntity) : void
             + agent_at(position: Coordinates2D) : Agent | None
         }
     }
 
     package "engine" {
         class WorldEngine {
-            + grid         : SpatialIndex
+            + grid         : Grid2D
             + agents       : list[Agent]
             + coordinator  : PathPlanner
             + dispatcher   : MissionOrchestrator | None
             + current_step : int
             --
             + register_agent(agent: Agent) : void
-            + spawn_static_obstacle(entity: SpatialEntity) : void
+            + spawn_static_obstacle(entity: WorldEntity) : void
             + advance_time_step() : StepOutcome
         }
 
         abstract class PathPlanner {
-            + plan(agents: list[Agent], grid: SpatialIndex, intent: AssignmentManifest) : StepOutcome
+            + plan(agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) : StepOutcome
         }
 
         abstract class MissionOrchestrator {
-            + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+            + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
         }
     }
 }
@@ -104,7 +98,7 @@ package "mrta" #FFF0F5 {
     }
 
     abstract class AssignmentStrategy {
-        + match_missions_to_units(pending: list[Mission], free: list[Agent], grid: SpatialIndex) : dict[Mission, Agent]
+        + match_missions_to_units(pending: list[Mission], free: list[Agent], grid: Grid2D) : dict[Mission, Agent]
     }
 
     class TaskDrivenOrchestrator {
@@ -112,17 +106,16 @@ package "mrta" #FFF0F5 {
         + allocator : AssignmentStrategy
         + tasks     : list[Mission]
         --
-        + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
     }
 }
 
 ' ── Simplified High-Level Relations ─────────────────────────────
 
-SpatialEntity <|-- Agent
-SpatialEntity <|-- NamedRegion
-SpatialEntity *-- Coordinates2D
-SpatialIndex o-- SpatialEntity
-WorldEngine *-- SpatialIndex
+WorldEntity <|-- Agent
+WorldEntity *-- Coordinates2D
+Grid2D o-- WorldEntity
+WorldEngine *-- Grid2D
 WorldEngine *-- Agent
 WorldEngine *-- PathPlanner
 WorldEngine *-- MissionOrchestrator

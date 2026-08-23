@@ -54,7 +54,7 @@ package "core" #EAF4FF {
             + __add__(other: Coordinates2D) : Coordinates2D
         }
 
-        class SpatialEntity {
+        class WorldEntity {
             + entity_id       : int
             + position        : Coordinates2D
             + appear_at       : int
@@ -71,35 +71,19 @@ package "core" #EAF4FF {
             + move_to(new_position: Coordinates2D) : void
         }
 
-        class NamedRegion {
-            + name  : str
-            + cells : tuple[Coordinates2D]
-            --
-            + contains(position: Coordinates2D) : bool
-        }
-        !if $ANNOTATED == 1
-        note bottom of NamedRegion
-          **A named region — "send the fleet to the loading station"**
-          A group of cells the operator can address by name instead of
-          by coordinates: loading station, working space, empty-rack
-          area. Like any SpatialEntity it can spawn late and go inactive;
-          unlike the others it covers several cells, so the grid knows
-          it at each of them rather than at a single corner.
-        end note
-        !endif
     }
 
     package "environment" {
-        class SpatialIndex {
+        class Grid2D {
             + width  : int
             + height : int
             - _agents : dict[Coordinates2D, Agent]
-            - _static : dict[Coordinates2D, list[SpatialEntity]]
+            - _static : dict[Coordinates2D, list[WorldEntity]]
             --
             + is_within_bounds(position: Coordinates2D) : bool
             + is_blocked(position: Coordinates2D) : bool
-            + place(entity: SpatialEntity) : void
-            + unindex(entity: SpatialEntity) : void
+            + place(entity: WorldEntity) : void
+            + unindex(entity: WorldEntity) : void
             + agent_at(position: Coordinates2D) : Agent | None
         }
     }
@@ -129,11 +113,11 @@ package "core" #EAF4FF {
         !endif
 
         abstract class PathPlanner $st("Strategy") {
-            + {abstract} plan(agents: list[Agent], grid: SpatialIndex, intent: AssignmentManifest) : StepOutcome
+            + {abstract} plan(agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) : StepOutcome
         }
 
         abstract class MissionOrchestrator $st("Strategy") {
-            + {abstract} assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+            + {abstract} assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
         }
         !if $ANNOTATED == 1
         note bottom of MissionOrchestrator
@@ -151,21 +135,21 @@ package "core" #EAF4FF {
         class FixedGoalDispatcher {
             - _intent : AssignmentManifest
             --
-            + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+            + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
         }
 
         class WorldEngine {
-            + grid         : SpatialIndex
+            + grid         : Grid2D
             + agents       : list[Agent]
-            + entities     : list[SpatialEntity]
-            - _pending     : list[SpatialEntity]
+            + entities     : list[WorldEntity]
+            - _pending     : list[WorldEntity]
             + current_step : int
             + coordinator  : PathPlanner
             + dispatcher   : MissionOrchestrator | None
             + last_intent  : AssignmentManifest
             --
             + register_agent(agent: Agent) : void
-            + spawn_static_obstacle(entity: SpatialEntity) : void
+            + spawn_static_obstacle(entity: WorldEntity) : void
             + advance_time_step() : StepOutcome
         }
         !if $ANNOTATED == 1
@@ -233,7 +217,7 @@ package "mrta" #FFF0F5 {
     }
 
     class RandomMissionSource {
-        - _grid  : SpatialIndex
+        - _grid  : Grid2D
         - _every : int
         - _count : int
         - _rng   : Random
@@ -254,7 +238,7 @@ package "mrta" #FFF0F5 {
     }
 
     abstract class AssignmentStrategy $st("Strategy") {
-        + {abstract} match_missions_to_units(pending: list[Mission], free: list[Agent], grid: SpatialIndex) : dict[Mission, Agent]
+        + {abstract} match_missions_to_units(pending: list[Mission], free: list[Agent], grid: Grid2D) : dict[Mission, Agent]
     }
     !if $ANNOTATED == 1
     note right of AssignmentStrategy
@@ -277,7 +261,7 @@ package "mrta" #FFF0F5 {
         + completed_count : int
         + failed_count    : int
         --
-        + assign_missions(agents: list[Agent], grid: SpatialIndex, step: int) : AssignmentManifest
+        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
         + set_mission_priority(task_id: int, priority: float) : void
     }
     !if $ANNOTATED == 1
@@ -316,34 +300,32 @@ package "mrta" #FFF0F5 {
 '   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
 '                  reads or indexes it; something else governs its life.
 '
-' The two edges that changed under this rule are SpatialIndex -> SpatialEntity
-' and WorldEngine -> SpatialIndex; see the comments on each.
+' The two edges that changed under this rule are Grid2D -> WorldEntity
+' and WorldEngine -> Grid2D; see the comments on each.
 
 ' ── Inheritance & entities ────────────────────────────────────────
-SpatialEntity <|-- Agent
-SpatialEntity <|-- NamedRegion
-SpatialEntity "1" *-- "1" Coordinates2D : position
+WorldEntity <|-- Agent
+WorldEntity "1" *-- "1" Coordinates2D : position
 ' Filled diamond: Coordinates2D is immutable, so sharing an instance is
 ' meaningless and ownership is moot — the same rule as above.
-NamedRegion "1" *-- "1..*" Coordinates2D : cells
 
-' ── SpatialIndex ──────────────────────────────────────────────────
-' Aggregation, not composition: SpatialIndex is a spatial INDEX, not a
+' ── Grid2D ──────────────────────────────────────────────────
+' Aggregation, not composition: Grid2D is a spatial INDEX, not a
 ' store. An entity lives in WorldEngine.entities (and in _pending, before
 ' the grid has ever seen it), and grid.unindex(agent) during the lift
 ' phase of a step does not end its life — it un-indexes it for a few
 ' lines. A filled diamond here would claim the opposite, and would also
-' contradict WorldEngine *-- SpatialEntity just below: two exclusive
+' contradict WorldEngine *-- WorldEntity just below: two exclusive
 ' owners of one object cannot both be right.
-SpatialIndex "1" o-- "0..*" SpatialEntity : "> index"
+Grid2D "1" o-- "0..*" WorldEntity : "> index"
 
 ' ── Engine: simulation loop ───────────────────────────────────────
-' Aggregation: whatever builds the scenario hands the same SpatialIndex
+' Aggregation: whatever builds the scenario hands the same Grid2D
 ' instance to WorldEngine and to RandomMissionSource, which reads it to
 ' find free cells. WorldEngine drives the grid; it does not own it
 ' exclusively.
-WorldEngine "1" o-- "1" SpatialIndex        : grid
-WorldEngine "1" *-- "0..*" SpatialEntity    : entities
+WorldEngine "1" o-- "1" Grid2D        : grid
+WorldEngine "1" *-- "0..*" WorldEntity    : entities
 WorldEngine "1" o-- "1" PathPlanner         : coordinator
 WorldEngine "1" o-- "0..1" MissionOrchestrator : dispatcher (optional)
 WorldEngine "1" *-- "1" AssignmentManifest  : last_intent
@@ -371,7 +353,7 @@ TaskDrivenOrchestrator "1" *-- "0..*" Mission         : tasks
 ' freely. This hidden edge pins one rank, left to right: the grid, the
 ' engine that advances it, and the fleet that feeds it goals — so core
 ' and mrta land side by side instead of dot picking an arbitrary order.
-SpatialIndex -[hidden]right- WorldEngine
+Grid2D -[hidden]right- WorldEngine
 WorldEngine -[hidden]right- TaskDrivenOrchestrator
 
 ' =====================================================================

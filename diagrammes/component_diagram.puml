@@ -63,7 +63,7 @@ IDisp  -down- core
 
 note bottom of core
   **No caller, no algorithm drawn — on purpose**
-  Something still has to wire a SpatialIndex, agents and a PathPlanner
+  Something still has to wire a Grid2D, agents and a PathPlanner
   (and a TaskDrivenOrchestrator in MRTA mode) to actually run this, and
   something still has to implement PathPlanner in the first place. Both
   used to exist — client/ wired scenarios, algo/ implemented PathPlanner
