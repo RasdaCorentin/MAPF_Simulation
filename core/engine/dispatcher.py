@@ -18,8 +18,8 @@ class MissionOrchestrator(ABC):
     ``core`` lets ``WorldEngine`` own the tick order
     (assign_missions -> plan) without importing ``mrta`` — the same
     dependency-inversion seam as ``PathPlanner``.
-    ``TaskDrivenOrchestrator`` and ``FixedGoalDispatcher`` are concrete
-    mission orchestrators.
+    ``TaskDrivenOrchestrator`` (``mrta``) is the concrete mission
+    orchestrator; core ships no orchestrator of its own.
     """
 
     @abstractmethod

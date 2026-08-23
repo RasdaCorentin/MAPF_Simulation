@@ -88,6 +88,22 @@ tick) are not enforced, `_validate_plan()` does not check for it.
 
 ---
 
+### `Objective` — `core/entities/objective.py`
+```python
+class Objective(WorldEntity):
+    - _assignee: Agent | None
+    --
+    + assignee: Agent | None              # read-only property over _assignee
+    + attach_to(agent: Agent) : void
+```
+A goal, not an obstacle. `Objective` is a `WorldEntity` like any other — placed and indexed the
+same way, no special taxonomy needed — carrying no state of its own beyond binding to exactly one
+`Agent`. `attach_to()` is its only mutator. First removed in `56344f8` when goals were flattened to a
+plain `dict[int, Coordinates2D]`; reinstated once `AssignmentManifest.goals` needed to carry a
+per-goal assignee again rather than an implicit agent_id key — see `AssignmentManifest` below.
+
+---
+
 ### `Grid2D` — `core/environment/grid.py`
 ```python
 class Grid2D:
@@ -136,10 +152,10 @@ is a guard, not a proof.
 ```python
 @dataclass(frozen=True)
 class AssignmentManifest:
-    goals:      dict[int, Coordinates2D]   # agent_id -> target (absolute, this tick)
-    priorities: dict[int, float]           # agent_id -> allocation priority (optional per agent)
+    goals:      list[Objective]   # every Objective wanted this tick, each attach_to()'d already
+    priorities: dict[int, float]  # agent_id -> allocation priority (optional per agent)
 ```
-Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `MissionOrchestrator`, consumed by `PathPlanner.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the planner, which keeps allocation (`mrta`) and navigation (whatever implements `PathPlanner`) decoupled and gives an auditable per-tick record.
+Immutable carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `MissionOrchestrator`, consumed by `PathPlanner.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the planner, which keeps allocation (`mrta`) and navigation (whatever implements `PathPlanner`) decoupled and gives an auditable per-tick record. `priorities` stays agent_id-keyed; a planner recovers "who wants what" by reading each `Objective.assignee.agent_id`, not by indexing `goals` — there is no dict-style lookup any more.
 
 ---
 
@@ -153,17 +169,13 @@ The single-method interface for every MAPF algorithm. Goals and priorities arriv
 
 ---
 
-### `MissionOrchestrator` / `FixedGoalDispatcher` — `core/engine/dispatcher.py`, `static_dispatcher.py`
+### `MissionOrchestrator` — `core/engine/dispatcher.py`
 ```python
 class MissionOrchestrator(ABC):
     @abstractmethod
     def assign_missions(self, agents: list[Agent], grid: Grid2D, step: int) -> AssignmentManifest: ...
-
-class FixedGoalDispatcher(MissionOrchestrator):
-    def __init__(self, goals: dict[int, Coordinates2D], priorities: dict[int, float] | None = None): ...
-    def assign_missions(self, agents, grid, step) -> AssignmentManifest   # same fixed manifest every tick
 ```
-Pre-planning hook: `WorldEngine.advance_time_step()` runs the orchestrator (if attached) **before** `plan()` and passes the returned manifest to it, so goals are never stale by construction. It never touches the planner. Living in `core` lets `WorldEngine` own the tick order (assign missions → plan) **without importing `mrta`** — the same dependency-inversion seam as `PathPlanner`. `TaskDrivenOrchestrator` (`mrta`) and `FixedGoalDispatcher` are the concrete orchestrators; use `FixedGoalDispatcher` for fixed-goal scenarios that need no task allocation.
+Pre-planning hook: `WorldEngine.advance_time_step()` runs the orchestrator (if attached) **before** `plan()` and passes the returned manifest to it, so goals are never stale by construction. It never touches the planner. Living in `core` lets `WorldEngine` own the tick order (assign missions → plan) **without importing `mrta`** — the same dependency-inversion seam as `PathPlanner`. `TaskDrivenOrchestrator` (`mrta`) is the only concrete orchestrator; **core ships none of its own** — `FixedGoalDispatcher` (`core/engine/static_dispatcher.py`) used to fill that role but was removed once `AssignmentManifest.goals` became `list[Objective]`: building an `Objective` needs a live `Agent` to `attach_to()`, which a fixed-at-construction dispatcher does not have until `assign_missions()` runs, so it could not be trivially adapted.
 
 ---
 
