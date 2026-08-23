@@ -152,11 +152,11 @@ class WorldEngine:
     entities:     list[WorldEntity]
     _pending:     list[WorldEntity]
     current_step: int
-    coordinator:  PathPlanner              # mandatory — no per-agent fallback
-    dispatcher:   MissionOrchestrator | None   # optional — produces this tick's manifest
+    planner:      PathPlanner              # mandatory — no per-agent fallback
+    orchestrator: MissionOrchestrator | None   # optional — produces this tick's manifest
     last_intent:  AssignmentManifest           # the manifest used by the last step (auditable)
 
-    __init__(grid, coordinator, dispatcher=None)
+    __init__(grid, planner, orchestrator=None)
     register_agent(agent)              # place + append
     spawn_static_obstacle(entity)      # append + place immediately if appear_at <= current_step
     advance_time_step() -> StepOutcome # spawn -> assign missions -> plan -> validate -> lift -> place
@@ -168,9 +168,9 @@ against the already-incremented step (an entity with `appear_at=1` spawns on the
 `advance_time_step()`):
 ```python
 # 1. Spawn deferred entities whose appear_at step has been reached
-# 2. Assign missions: intent = self.dispatcher.assign_missions(...) if dispatcher else AssignmentManifest()  (empty)
+# 2. Assign missions: intent = self.orchestrator.assign_missions(...) if orchestrator else AssignmentManifest()  (empty)
 #    stored in self.last_intent
-# 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid, intent)
+# 3. Coordinated planning (mandatory): result = self.planner.plan(self.agents, self.grid, intent)
 # 4. Validate: self._validate_plan(result) — raises before the grid is touched
 # 5. Lift:  grid.unindex(agent) for every agent whose target differs from its position
 # 6. Place: agent.move_to(target) then grid.place(agent)

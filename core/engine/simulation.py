@@ -25,8 +25,8 @@ class WorldEngine:
     def __init__(
         self,
         grid: Grid2D,
-        coordinator: PathPlanner,
-        dispatcher: Optional[MissionOrchestrator] = None,
+        planner: PathPlanner,
+        orchestrator: Optional[MissionOrchestrator] = None,
     ) -> None:
         """Input: the grid, the (mandatory) coordination strategy, and an
         optional mission orchestrator run before planning each step.
@@ -37,8 +37,8 @@ class WorldEngine:
         self.entities: list[WorldEntity] = []
         self._pending: list[WorldEntity] = []
         self.current_step = 0
-        self.coordinator = coordinator
-        self.dispatcher = dispatcher
+        self.planner = planner
+        self.orchestrator = orchestrator
         self.last_intent = AssignmentManifest()
 
     def register_agent(self, agent: Agent) -> None:
@@ -73,7 +73,7 @@ class WorldEngine:
         claimed: dict[Coordinates2D, int] = {}
         for agent in self.agents:
             target = result.positions.get(agent.agent_id, agent.position)
-            who = type(self.coordinator).__name__
+            who = type(self.planner).__name__
 
             # Cell uniqueness covers every agent: a mover must not target
             # a cell a stationary agent keeps.
@@ -124,14 +124,14 @@ class WorldEngine:
 
         # 2. Assign missions before planning: compute this tick's manifest
         # (absolute goals/priorities). An empty manifest if no orchestrator.
-        if self.dispatcher is not None:
-            intent = self.dispatcher.assign_missions(self.agents, self.grid, self.current_step)
+        if self.orchestrator is not None:
+            intent = self.orchestrator.assign_missions(self.agents, self.grid, self.current_step)
         else:
             intent = AssignmentManifest()
         self.last_intent = intent
 
         # 3. Planner computes all next positions from the manifest
-        result = self.coordinator.plan(self.agents, self.grid, intent)
+        result = self.planner.plan(self.agents, self.grid, intent)
 
         # 4. Reject an inapplicable plan before touching the grid, so the
         # lift/place transaction below can never fail halfway through and
@@ -152,6 +152,13 @@ class WorldEngine:
         for agent, target_pos in moving_agents:
             agent.move_to(target_pos)
             self.grid.place(agent)
+
+        # 7. Rotation is not grid-indexed, so it needs no lift/place —
+        # apply it for every agent the planner gave a heading for.
+        for agent in self.agents:
+            new_orientation = result.orientations.get(agent.agent_id)
+            if new_orientation is not None:
+                agent.rotate_to(new_orientation)
 
         return result
 

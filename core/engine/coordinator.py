@@ -17,7 +17,7 @@ class PathPlanner(ABC):
     coordinated pass. The manifest is the *only* channel for goals and
     priorities — there is no external mutation of the planner, so the
     allocation layer and the navigation layer stay decoupled.
-    Plugged into WorldEngine via the ``coordinator`` attribute.
+    Plugged into WorldEngine via the ``planner`` attribute.
     """
 
     @abstractmethod
