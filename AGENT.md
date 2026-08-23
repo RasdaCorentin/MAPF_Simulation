@@ -24,32 +24,31 @@ direction, the rules and the invariants. Everything about a specific class lives
 | Guide | Covers |
 |---|---|
 | [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
-| [`mrta/AGENT.md`](mrta/AGENT.md) | `Mission` lifecycle, mission sources, `TaskDrivenOrchestrator`, eligibility, the watchdog, domain vocabulary |
 | [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
-**Working on one package?** Root + that guide is enough. Changing a *seam* between two — an ABC,
-a DTO, an import direction — read both guides and the rules below.
+**Working on one package?** Root + that guide is enough.
 
-`client/`, `report/` and `algo/` are all gone as of this and an earlier refactor — see `TODO.md`
-for exactly what that broke and why it was left broken rather than patched. `pibt/` restores one
-concrete `PathPlanner` from what `algo/` used to provide — see [`pibt/AGENT.md`](pibt/AGENT.md).
+`client/`, `report/`, `algo/` and `mrta/` are all gone as of this and earlier refactors — see
+`TODO.md` for exactly what that broke and why it was left broken rather than patched. `pibt/`
+restores one concrete `PathPlanner` from what `algo/` used to provide — see
+[`pibt/AGENT.md`](pibt/AGENT.md); it is `core/`'s only dependent right now.
 
 ---
 
 ## Running the simulation
 
-`main.py` and `sim_many_mrta.py` are still broken (depended on `client.control`/`report`), and so
-are `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py` (imported a concrete
-`PathPlanner` from `algo/` by name) — all five raise `ImportError` at the top-level import, see
-`TODO.md`. `pibt/demo_one_shot.py` is the first thing in the repo that runs a full tick end to
-end again: `python -m pibt.demo_one_shot` wires a `Grid2D`, a few `Agent`s, `PIBTPlanner` and
-`pibt`'s own `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — `core` dropped its own
-`FixedGoalDispatcher`, see `core/AGENT.md`) and steps the engine to convergence.
+`main.py` is still broken (depended on `client.control`/`report`), and so are `sim_many_pibt.py`,
+`sim_many_lacam.py` and `sim_many_pibt_plus.py` (imported a concrete `PathPlanner` from `algo/`
+by name) — all four raise `ImportError` at the top-level import, see `TODO.md`.
+`pibt/demo_one_shot.py` is the first thing in the repo that runs a full tick end to end again:
+`python -m pibt.demo_one_shot` wires a `Grid2D`, a few `Agent`s, `PIBTPlanner` and `pibt`'s own
+`OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — gone, and `core` dropped its own
+`FixedGoalDispatcher` too, see `core/AGENT.md`) and steps the engine to convergence.
 
 There is currently **no test suite either**, and no working de-facto regression check beyond that
-one demo script. `core/`, `mrta/` and `pibt/` all still import cleanly and their own internals can
-be exercised directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenario wiring needed).
+one demo script. `core/` and `pibt/` both still import cleanly and their internals can be
+exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring needed).
 
 ---
 
@@ -58,21 +57,15 @@ be exercised directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenar
 ```
 .
 ├── core/          — pure engine, zero rendering dependency        -> core/AGENT.md
-│   ├── entities/  — position.py, entity.py, agent.py
+│   ├── entities/  — position.py, entity.py, orientation.py, agent.py, objective.py
 │   ├── environment/ — grid.py (spatial source of truth)
-│   └── engine/    — plan_result, dispatch_intent, coordinator, dispatcher,
-│                    static_dispatcher, simulation
-│
-├── mrta/          — Multi-Robot Task Allocation, depends only on core   -> mrta/AGENT.md
-│                    task, task_source (+ queue/random/scripted/composite),
-│                    allocator, fleet_manager
+│   └── engine/    — plan_result, dispatch_intent, coordinator, dispatcher, simulation
 │
 ├── pibt/          — Priority Inheritance with Backtracking, depends only on core -> pibt/AGENT.md
 │                    reservation_table, priority_manager, pibt_core, pibt_planner, demo_one_shot
 │
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
-├── sim_many_mrta.py      — BROKEN: same reason — see TODO.md
 ├── sim_many_pibt.py      — BROKEN: imported a concrete PathPlanner from algo/, removed — see TODO.md
 ├── sim_many_lacam.py     — BROKEN: same reason — see TODO.md
 ├── sim_many_pibt_plus.py — BROKEN: same reason — see TODO.md
@@ -80,19 +73,19 @@ be exercised directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenar
 └── requirements.txt · LICENSE
 ```
 
-Every package carries an `__init__.py` re-exporting its public names; the package guide lists
-them. `experiments.csv`, `sim_results.csv` and `mrta_results.csv` may sit at the root — all
-gitignored outputs.
+`core/` carries an `__init__.py` re-exporting its public names; `core/AGENT.md` lists them.
+`experiments.csv` and `sim_results.csv` may sit at the root — gitignored outputs.
 
-**Dependency direction** (strict, matches the class diagram):
+**Dependency direction:** `core/` has no outgoing dependencies — a pure engine, no rendering or
+allocation coupling. `pibt/` is its only dependent right now:
 
 ```
-mrta -> core
 pibt -> core
 ```
 
 `pibt/PIBTPlanner` is a concrete `PathPlanner`; there is still nothing implementing
-`AssignmentStrategy`, and nothing wires a `TaskDrivenOrchestrator` above `mrta` — see `TODO.md`.
+`MissionOrchestrator` in `core/` itself (see `pibt/one_shot_dispatcher.py` for a local,
+package-scoped one) — see `TODO.md`.
 
 ---
 
@@ -105,7 +98,9 @@ break it. When in doubt, the class diagram arbitrates.
 
 ### Hard rules — never violate these
 
-- **`core/` must never import `mrta/`** — strictly one-directional dependency.
+- **`core/` must never import anything above it.** It is a pure engine with zero rendering or
+  allocation coupling — nothing in the repository currently sits above it, and that must stay a
+  one-directional dependency whenever something does again.
 - **The class diagram is the reference.** When code and `class_diag_commented.puml` disagree, the
   default is to change the *code* so the diagram becomes true; amend the diagram only when it is
   genuinely wrong. The component and object diagrams follow the class diagram, never the reverse.
@@ -118,7 +113,7 @@ break it. When in doubt, the class diagram arbitrates.
 
   | Source | Scope | Regenerate with |
   |---|---|---|
-  | `diagrammes/Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
+  | `diagrammes/Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
   | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
 
@@ -141,13 +136,13 @@ break it. When in doubt, the class diagram arbitrates.
 | `AssignmentManifest` decouples allocation from navigation | goals/priorities flow only through the manifest; no external mutation of the planner, so any PathPlanner pairs with any MissionOrchestrator |
 | Single mover | only `WorldEngine.advance_time_step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
 | Plans are validated, not rolled back | `WorldEngine._validate_plan()` rejects an inapplicable `StepOutcome` **before** any mutation, so the lift/place transaction cannot fail partially |
-| Mission identity belongs to the registry | `TaskDrivenOrchestrator` stamps `task_id` at intake; sources propose missions without one, so several sources cannot collide (`Mission` hashes on `task_id`) |
-| No unreachable mission consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
 
-A few invariants used to live here that named `algo/` classes directly (PIBT's goal-stability
-rule, its `-inf` demotion policy, the two allocators' seeded-RNG guarantee) — dropped along with
-`algo/` itself rather than kept as a promise nothing currently makes. Whatever implements
-`PathPlanner`/`AssignmentStrategy` next should restate the ones that still apply to it.
+A few invariants used to live here that named `algo/` or `mrta/` classes directly (PIBT's
+goal-stability rule and `-inf` demotion policy, the two allocators' seeded-RNG guarantee, mission
+identity belonging to the registry that stamped `task_id` at intake, the intake guard + progress
+watchdog that kept an unreachable mission from consuming an agent forever) — dropped along with
+`algo/` and `mrta/` themselves rather than kept as a promise nothing currently makes. Whatever
+implements `PathPlanner`/`MissionOrchestrator` next should restate the ones that still apply.
 
 No invariant currently describes a multi-cell entity: `Zone` filled that role and was removed
 once nothing depended on it — see [`core/AGENT.md`](core/AGENT.md).

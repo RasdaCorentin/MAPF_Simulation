@@ -4,11 +4,12 @@
 > invariants and the diagrams — lives in the root [`AGENT.md`](../AGENT.md) and is **not**
 > repeated here. Read it first.
 
-`pibt/` is a concrete `PathPlanner` (Okumura et al., 2022). It imports only from `core` —
-never from `mrta` — the same one-directional dependency `mrta` itself follows. Restored from
-the pre-`algo/`-removal implementation (see `TODO.md` at the repo root for that history) and
-re-parameterized onto the current `core` API (`Coordinates2D`, `Grid2D`, `PathPlanner`,
-`StepOutcome`, `AssignmentManifest`) — the algorithm itself is untouched.
+`pibt/` is a concrete `PathPlanner` (Okumura et al., 2022). It imports only from `core` and is
+`core/`'s only dependent right now (`mrta/`, which followed the same one-directional dependency,
+was removed — see `TODO.md`). Restored from the pre-`algo/`-removal implementation (see `TODO.md`
+at the repo root for that history) and re-parameterized onto the current `core` API
+(`Coordinates2D`, `Grid2D`, `PathPlanner`, `StepOutcome`, `AssignmentManifest`) — the algorithm
+itself is untouched.
 
 ### `ReservationTable` — `pibt/reservation_table.py`
 Tracks which agent has reserved which `Coordinates2D` for the next step during one planning

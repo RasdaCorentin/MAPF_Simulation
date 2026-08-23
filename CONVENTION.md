@@ -21,7 +21,6 @@ Folder and file names are in English.
 ├── CONVENTION.md        — this file
 ├── TODO.md              — known-broken entry points and why
 ├── core/                — pure simulation engine (entities, environment, engine)
-├── mrta/                — Multi-Robot Task Allocation
 ├── pibt/                — Priority Inheritance with Backtracking (a concrete PathPlanner)
 ├── diagrammes/          — PlantUML sources + generated PNGs (class, component, object)
 ├── main.py              — CLI entry point (currently broken, see TODO.md)
@@ -58,7 +57,7 @@ type(scope)!: subject
   | `docs`     | documentation only                                  |
   | `test`     | adding or fixing tests                              |
   | `chore`    | tooling, dependencies, housekeeping                 |
-- **scope** *(optional)* — the affected area, e.g. `core`, `algo`, `mrta`, `diagrams`.
+- **scope** *(optional)* — the affected area, e.g. `core`, `pibt`, `diagrams`.
 - **`!`** *(optional)* — marks a breaking change, e.g. `refactor(core)!: ...`.
 - **subject** — short, imperative, no trailing period.
 

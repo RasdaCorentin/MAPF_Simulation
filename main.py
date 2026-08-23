@@ -2,9 +2,8 @@
 """
 main.py — entry point for a MAPF scenario.
 
-    python main.py                                     # 15x15, 20 agents, PIBT + MRTA, window
-    python main.py --tasks random                      # same, with self-generated work
-    python main.py --frontend headless --tasks random --steps 20
+    python main.py                                     # 15x15, 20 agents, PIBT, window
+    python main.py --frontend headless --steps 20
     python main.py --algo random --mode static         # the historical random-walk demo
     python main.py --agents 40 --width 25 --height 25 --obstacles 20
 
@@ -37,14 +36,8 @@ def parse_args() -> argparse.Namespace:
                         help="navigation algorithm (default: pibt). "
                              "pibt+/lacam are batch algorithms and only "
                              "support --mode static")
-    parser.add_argument("--mode",      choices=("mrta", "static"), default="mrta",
-                        help="mrta = task allocation, static = fixed goals")
-    parser.add_argument("--allocator", choices=("easiest", "random"), default="easiest",
-                        help="task allocation strategy (default: easiest — the "
-                             "nearest free agent takes each task)")
-    parser.add_argument("--tasks",     choices=("none", "random"), default="none",
-                        help="background task generation on top of the "
-                             "interactive queue (default: none)")
+    parser.add_argument("--mode",      choices=("static",), default="static",
+                        help="static = fixed goals (task allocation was mrta/, now removed)")
     parser.add_argument("--frontend",  choices=("pygame", "headless"), default="pygame")
     parser.add_argument("--steps",     type=int, default=0,
                         help="step budget; 0 means run until quit (pygame only)")
@@ -77,8 +70,6 @@ def main() -> None:
         obstacles=args.obstacles,
         algo=args.algo,
         mode=args.mode,
-        allocator=args.allocator,
-        tasks=args.tasks,
         seed=args.seed,
     )
 

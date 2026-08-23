@@ -15,11 +15,10 @@ class MissionOrchestrator(ABC):
     returns an ``AssignmentManifest`` — the absolute goals/priorities wanted
     this tick. It never touches the planner: the manifest is data, handed by
     WorldEngine to ``PathPlanner.plan()``. Keeping this abstraction in
-    ``core`` lets ``WorldEngine`` own the tick order
-    (assign_missions -> plan) without importing ``mrta`` — the same
-    dependency-inversion seam as ``PathPlanner``.
-    ``TaskDrivenOrchestrator`` (``mrta``) is the concrete mission
-    orchestrator; core ships no orchestrator of its own.
+    ``core`` lets ``WorldEngine`` own the tick order (assign_missions -> plan)
+    without importing whatever implements this seam — the same
+    dependency-inversion pattern as ``PathPlanner``.
+    There is no concrete implementation in the repository right now.
     """
 
     @abstractmethod

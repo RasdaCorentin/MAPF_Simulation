@@ -1,13 +1,11 @@
 ' =====================================================================
 '  Annotated class diagram — self-contained (single file, no !include).
 '
-'  This used to be one of two renderings driven off a shared _model.iuml
-'  (via diagrams.puml, toggled by $ANNOTATED). The "simple" rendering was
-'  dropped as redundant with class_diag_simplified.puml, which already
-'  covers that role as its own hand-curated diagram; $ANNOTATED is kept
-'  and hardcoded to 1 below so this file's content — classes, relations,
-'  stereotypes, notes, legend — stays byte-for-byte what the annotated
-'  rendering already was.
+'  Engine-only: this is the whole repository now. The mrta package (task
+'  allocation) was removed outright, not just left off this diagram. What
+'  remains is the world and the tick that advances it, plus the two
+'  abstract seams (PathPlanner, MissionOrchestrator) that let a future
+'  package plug in without core knowing it exists.
 '
 '  Regenerate with:
 '      plantuml diagrammes/Class_Diagram/class_diag_commented.puml
@@ -17,8 +15,7 @@
 ' =====================================================================
 
 @startuml simulation_class_diagram_commente
-!$ANNOTATED = 1
-title Simulation — Class diagram (annotated: context & design patterns)
+title Simulation — Engine class diagram (annotated: context & design patterns)
 
 skinparam classAttributeIconSize 0
 skinparam classFontSize 13
@@ -33,26 +30,34 @@ skinparam NoteBackgroundColor #FFFDE7
 skinparam NoteBorderColor #C9B458
 skinparam linetype ortho
 
-' Conditional stereotype: emitted only in the annotated rendering.
-!function $st($s)
-  !if $ANNOTATED == 1
-    !return "<<" + $s + ">>"
-  !endif
-  !return ""
-!endfunction
-
 ' =====================================================================
 '  core — the world and the tick that advances it
 ' =====================================================================
 package "core" #EAF4FF {
 
     package "entities" {
-        class Coordinates2D $st("value object") {
+        class Coordinates2D <<value object>> {
             + x : int
             + y : int
             --
             + __add__(other: Coordinates2D) : Coordinates2D
         }
+
+        enum Orientation <<value object>> {
+            NORTH
+            EAST
+            SOUTH
+            WEST
+        }
+        note bottom of Orientation
+          **Heading, not yet wired to a planner**
+          Cardinal direction, carried by Agent alongside position.
+          Exists for a future LoRR-style export (PlanViz reads a
+          per-agent heading and discrete R/F/W actions per tick).
+          rotate_to() lets an engine transaction apply it, but no
+          PathPlanner sets StepOutcome.orientations yet, so an
+          agent's heading never actually changes today.
+        end note
 
         class WorldEntity {
             + entity_id       : int
@@ -67,9 +72,24 @@ package "core" #EAF4FF {
         class Agent {
             + agent_id    : int
             + steps_taken : int
+            + orientation : Orientation
             --
             + move_to(new_position: Coordinates2D) : void
+            + rotate_to(new_orientation: Orientation) : void
         }
+
+        class Objective {
+            - _assignee : Agent | None
+            --
+            + attach_to(agent: Agent) : void
+        }
+        note bottom of Objective
+          **A goal, not an obstacle**
+          Objective is a WorldEntity like any other — placed and
+          indexed the same way, no special taxonomy needed. attach_to()
+          is its only behavior: it binds this Objective to one specific
+          Agent, the one allowed to complete it.
+        end note
 
     }
 
@@ -89,37 +109,36 @@ package "core" #EAF4FF {
     }
 
     package "engine" {
-        class StepOutcome $st("DTO") {
-            + positions   : dict[int, Coordinates2D]
-            + moves       : dict[int, tuple]
-            + order       : list[int]
-            + inheritance : list[tuple]
-            + priorities  : dict[int, float]
+        class StepOutcome <<DTO>> {
+            + positions    : dict[int, Coordinates2D]
+            + moves        : dict[int, tuple]
+            + order        : list[int]
+            + inheritance  : list[tuple]
+            + priorities   : dict[int, float]
+            + orientations : dict[int, Orientation]
         }
 
-        class AssignmentManifest $st("DTO") {
-            + goals      : dict[int, Coordinates2D]
+        class AssignmentManifest <<DTO>> {
+            + goals      : list[Objective]
             + priorities : dict[int, float]
         }
-        !if $ANNOTATED == 1
         note bottom of AssignmentManifest
           **The only channel between the two sides**
           One tick's complete answer to "where should everyone go?" —
-          a goal and an optional priority per agent, frozen.
+          a list of Objectives, each already attach_to()'d to the agent
+          it is for, plus an optional priority per agent, frozen.
           Nothing else may set a planner's goals, so any MissionOrchestrator
           pairs with any PathPlanner, and every tick leaves an
           auditable record of what was asked.
         end note
-        !endif
 
-        abstract class PathPlanner $st("Strategy") {
+        abstract class PathPlanner <<Strategy>> {
             + {abstract} plan(agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) : StepOutcome
         }
 
-        abstract class MissionOrchestrator $st("Strategy") {
+        abstract class MissionOrchestrator <<Strategy>> {
             + {abstract} assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
         }
-        !if $ANNOTATED == 1
         note bottom of MissionOrchestrator
           **The two questions of the simulation, kept apart**
           MissionOrchestrator answers WHERE each robot should go — a
@@ -130,13 +149,6 @@ package "core" #EAF4FF {
           without knowing that task allocation or PIBT exist. Swap
           either side and the other is unaffected.
         end note
-        !endif
-
-        class FixedGoalDispatcher {
-            - _intent : AssignmentManifest
-            --
-            + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
-        }
 
         class WorldEngine {
             + grid         : Grid2D
@@ -144,15 +156,14 @@ package "core" #EAF4FF {
             + entities     : list[WorldEntity]
             - _pending     : list[WorldEntity]
             + current_step : int
-            + coordinator  : PathPlanner
-            + dispatcher   : MissionOrchestrator | None
+            + planner      : PathPlanner
+            + orchestrator : MissionOrchestrator | None
             + last_intent  : AssignmentManifest
             --
             + register_agent(agent: Agent) : void
             + spawn_static_obstacle(entity: WorldEntity) : void
             + advance_time_step() : StepOutcome
         }
-        !if $ANNOTATED == 1
         note top of WorldEngine
           **The engine — one tick of the world**
           Every step runs the same three phases, in this order:
@@ -164,128 +175,7 @@ package "core" #EAF4FF {
           move inside one transaction, so two of them can swap cells
           without either seeing the grid half-updated.
         end note
-        !endif
     }
-}
-
-' =====================================================================
-'  mrta — Multi-Robot Task Allocation: who does what
-' =====================================================================
-package "mrta" #FFF0F5 {
-
-    enum MissionState {
-        PENDING
-        ASSIGNED
-        DONE
-        FAILED
-    }
-
-    class Mission {
-        + task_id               : int
-        + target                : Coordinates2D
-        + priority              : float
-        + state                 : MissionState
-        + assignee              : Agent | None
-        + created_step          : int
-        + eligible              : frozenset[int] | None
-        + attempts              : int
-        + best_distance         : int | None
-        + last_improvement_step : int
-    }
-
-    abstract class MissionSource $st("Strategy") {
-        + {abstract} fetch_new_missions(current_step: int) : list[Mission]
-    }
-    !if $ANNOTATED == 1
-    note left of MissionSource
-      **Where the work comes from**
-      A run can be fed by a human, a generator or a script — the fleet
-      does not care which:
-        QueueMissionSource     — pushed from outside (a click, a script)
-        RandomMissionSource    — seeded background load, for benchmarks
-        ScriptedMissionSource  — a fixed {step: missions} schedule, for tests
-        CompositeMissionSource — several at once (manual AND background)
-    end note
-    !endif
-
-    class QueueMissionSource {
-        - _queue : list[Mission]
-        --
-        + push(task: Mission) : void
-        + push_many(tasks: list[Mission]) : void
-        + fetch_new_missions(current_step: int) : list[Mission]
-    }
-
-    class RandomMissionSource {
-        - _grid  : Grid2D
-        - _every : int
-        - _count : int
-        - _rng   : Random
-        --
-        + fetch_new_missions(current_step: int) : list[Mission]
-    }
-
-    class ScriptedMissionSource {
-        - _schedule : dict[int, list[Mission]]
-        --
-        + fetch_new_missions(current_step: int) : list[Mission]
-    }
-
-    class CompositeMissionSource {
-        + sources : list[MissionSource]
-        --
-        + fetch_new_missions(current_step: int) : list[Mission]
-    }
-
-    abstract class AssignmentStrategy $st("Strategy") {
-        + {abstract} match_missions_to_units(pending: list[Mission], free: list[Agent], grid: Grid2D) : dict[Mission, Agent]
-    }
-    !if $ANNOTATED == 1
-    note right of AssignmentStrategy
-      **Who takes which job**
-      The matching strategy, isolated so variants can be compared:
-      pending missions and idle robots in, mission -> robot pairs out.
-      Whichever implementation is plugged in, it never decides
-      *whether* a robot is allowed to take a job: TaskDrivenOrchestrator
-      has already filtered that before it calls it.
-      No concrete implementation exists currently — see TODO.md.
-    end note
-    !endif
-
-    class TaskDrivenOrchestrator {
-        + source          : MissionSource
-        + allocator       : AssignmentStrategy
-        + patience        : int
-        + max_attempts    : int
-        + tasks           : list[Mission]
-        + completed_count : int
-        + failed_count    : int
-        --
-        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
-        + set_mission_priority(task_id: int, priority: float) : void
-    }
-    !if $ANNOTATED == 1
-    note bottom of TaskDrivenOrchestrator
-      **The fleet's memory — it is the MissionOrchestrator in task mode**
-      Each tick it collects new missions, marks arrived ones DONE, hands
-      the rest to the AssignmentStrategy, and publishes the result as an
-      AssignmentManifest. A mission lives PENDING -> ASSIGNED -> DONE, or
-      ends FAILED.
-
-      **Why FAILED exists.** An assigned agent is no longer available,
-      so a mission aiming at an unreachable cell would hold a robot
-      hostage forever while the fleet still looked healthy. Two guards
-      prevent it:
-        at intake — a target off-grid or under an obstacle is rejected
-        watchdog  — an assignee that gets no closer for `patience`
-                    steps is released and the mission retried; after
-                    `max_attempts` assignees the mission is FAILED
-      Progress is *observed* rather than reachability *proven*:
-      obstacles can appear mid-run, so any proof would be stale and
-      would duplicate the planner. Failed missions are counted, never
-      silently dropped.
-    end note
-    !endif
 }
 
 ' ── Diamond convention ────────────────────────────────────────────
@@ -296,7 +186,7 @@ package "mrta" #FFF0F5 {
 '                  instance is meaningless, so ownership is moot
 '                  (Coordinates2D, AssignmentManifest, StepOutcome) —
 '                  or a MUTABLE object with a single, exclusive owner
-'                  (WorldEngine's entities, TaskDrivenOrchestrator's tasks).
+'                  (WorldEngine's entities, WorldEntity's position).
 '   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
 '                  reads or indexes it; something else governs its life.
 '
@@ -305,9 +195,27 @@ package "mrta" #FFF0F5 {
 
 ' ── Inheritance & entities ────────────────────────────────────────
 WorldEntity <|-- Agent
+WorldEntity <|-- Objective
 WorldEntity "1" *-- "1" Coordinates2D : position
 ' Filled diamond: Coordinates2D is immutable, so sharing an instance is
 ' meaningless and ownership is moot — the same rule as above.
+
+Agent "1" *-- "1" Orientation : orientation
+' Same rule again: Orientation is an enum (immutable), so a filled
+' diamond, same as Coordinates2D above — not yet set by any planner,
+' see the note on Orientation.
+
+' Objective -> Agent is neither: it's a single optional reference to an
+' externally-owned object, not a collection to index (hollow) nor
+' something Objective's lifecycle governs (filled). Plain association,
+' set by attach_to().
+Objective "0..1" --> "1" Agent : assignee
+
+' Hollow: AssignmentManifest.goals references Objective instances that
+' already exist in WorldEngine.entities — it doesn't create or own
+' them, just names which ones matter for this tick, same reasoning as
+' Grid2D -> WorldEntity above.
+AssignmentManifest "1" o-- "0..*" Objective : goals
 
 ' ── Grid2D ──────────────────────────────────────────────────
 ' Aggregation, not composition: Grid2D is a spatial INDEX, not a
@@ -321,57 +229,29 @@ Grid2D "1" o-- "0..*" WorldEntity : "> index"
 
 ' ── Engine: simulation loop ───────────────────────────────────────
 ' Aggregation: whatever builds the scenario hands the same Grid2D
-' instance to WorldEngine and to RandomMissionSource, which reads it to
-' find free cells. WorldEngine drives the grid; it does not own it
-' exclusively.
+' instance to WorldEngine. WorldEngine drives the grid; it does not own
+' it exclusively.
 WorldEngine "1" o-- "1" Grid2D        : grid
 WorldEngine "1" *-- "0..*" WorldEntity    : entities
-WorldEngine "1" o-- "1" PathPlanner         : coordinator
-WorldEngine "1" o-- "0..1" MissionOrchestrator : dispatcher (optional)
+WorldEngine "1" o-- "1" PathPlanner         : planner
+WorldEngine "1" o-- "0..1" MissionOrchestrator : orchestrator (optional)
 WorldEngine "1" *-- "1" AssignmentManifest  : last_intent
 PathPlanner ..> StepOutcome : «returns»
 PathPlanner ..> AssignmentManifest : «reads»
-
-' ── MRTA ──────────────────────────────────────────────────────────
-Mission "1" *-- "1" MissionState : state
-
-MissionSource <|.. QueueMissionSource
-MissionSource <|.. RandomMissionSource
-MissionSource <|.. ScriptedMissionSource
-MissionSource <|.. CompositeMissionSource
-CompositeMissionSource "1" o-- "1..*" MissionSource : sources
-
-MissionOrchestrator <|.. TaskDrivenOrchestrator
-MissionOrchestrator <|.. FixedGoalDispatcher
 MissionOrchestrator ..> AssignmentManifest : «returns»
-TaskDrivenOrchestrator "1" o-- "1" MissionSource      : source
-TaskDrivenOrchestrator "1" o-- "1" AssignmentStrategy : allocator
-TaskDrivenOrchestrator "1" *-- "0..*" Mission         : tasks
-
-' ── Layout constraint: keep the engine and the fleet adjacent ─────
-' Declaration order alone is a weak hint — dot re-orders clusters
-' freely. This hidden edge pins one rank, left to right: the grid, the
-' engine that advances it, and the fleet that feeds it goals — so core
-' and mrta land side by side instead of dot picking an arbitrary order.
-Grid2D -[hidden]right- WorldEngine
-WorldEngine -[hidden]right- TaskDrivenOrchestrator
 
 ' =====================================================================
-'  Page-level legend — the 30-second read, annotated rendering only.
+'  Page-level legend — the 30-second read.
 ' =====================================================================
-!if $ANNOTATED == 1
 legend bottom left
-  **What this project simulates**
-  A fleet of robots moving on a grid. Jobs appear somewhere on the map;
-  the fleet decides //which robot takes which job// (allocation), then a
-  MAPF algorithm decides //how they all get there without colliding//
-  (coordination). Read the packages in this order:
-    **core**   the world (grid, agents) and the tick that advances it
-    **mrta**   Multi-Robot Task Allocation — who does what
-  There is currently no concrete PathPlanner or AssignmentStrategy
-  implementation and no supported way to drive or watch a run end to
-  end — see TODO.md.
+  **What this diagram covers**
+  The pure engine: the world (grid, agents, entities) and the tick that
+  advances it. Task allocation — who does which job — used to live in
+  the mrta package, removed from the repository; the MissionOrchestrator
+  seam through which it plugged in is all that remains.
+  There is currently no concrete PathPlanner or MissionOrchestrator
+  implementation in the repository, and no supported way to drive or
+  watch a run end to end — see TODO.md.
 end legend
-!endif
 
 @enduml

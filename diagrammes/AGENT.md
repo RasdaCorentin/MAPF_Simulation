@@ -28,7 +28,7 @@
 
 | Source | Scope | Regenerate with |
 |---|---|---|
-| `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core`, `mrta` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
+| `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
 | `component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
 | `Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering — plain attributes, no notes | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
 

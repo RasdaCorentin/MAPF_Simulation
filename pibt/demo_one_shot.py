@@ -1,10 +1,9 @@
 """First end-to-end run of PIBTPlanner: a one-shot goal map.
 
 "One-shot" means every agent gets a single fixed goal for the whole run —
-no rotating tasks, no mrta — so the mission side is the trivial
+no rotating tasks — so the mission side is the trivial
 ``OneShotGoalDispatcher`` (local to this package — core's own
-``FixedGoalDispatcher`` was dropped in 4e0c51f, see
-``one_shot_dispatcher.py``) rather than a ``TaskDrivenOrchestrator``.
+``FixedGoalDispatcher`` was dropped in 4e0c51f, see ``one_shot_dispatcher.py``).
 This is the smallest scenario that exercises the full tick
 (assign missions -> plan -> move) with a real PathPlanner plugged in.
 
