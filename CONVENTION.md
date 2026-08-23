@@ -22,6 +22,7 @@ Folder and file names are in English.
 ├── TODO.md              — known-broken entry points and why
 ├── core/                — pure simulation engine (entities, environment, engine)
 ├── mrta/                — Multi-Robot Task Allocation
+├── pibt/                — Priority Inheritance with Backtracking (a concrete PathPlanner)
 ├── diagrammes/          — PlantUML sources + generated PNGs (class, component, object)
 ├── main.py              — CLI entry point (currently broken, see TODO.md)
 └── sim_many_pibt.py     — headless benchmark sweep

@@ -25,28 +25,30 @@ direction, the rules and the invariants. Everything about a specific class lives
 |---|---|
 | [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Agent`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
 | [`mrta/AGENT.md`](mrta/AGENT.md) | `Mission` lifecycle, mission sources, `TaskDrivenOrchestrator`, eligibility, the watchdog, domain vocabulary |
+| [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough. Changing a *seam* between two — an ABC,
 a DTO, an import direction — read both guides and the rules below.
 
 `client/`, `report/` and `algo/` are all gone as of this and an earlier refactor — see `TODO.md`
-for exactly what that broke and why it was left broken rather than patched.
+for exactly what that broke and why it was left broken rather than patched. `pibt/` restores one
+concrete `PathPlanner` from what `algo/` used to provide — see [`pibt/AGENT.md`](pibt/AGENT.md).
 
 ---
 
 ## Running the simulation
 
-Nothing runs end to end right now. `main.py` and `sim_many_mrta.py` were broken first (depended
-on `client.control`/`report`); `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py`
-were broken after (depended on a concrete `PathPlanner` from `algo/`). All five raise
-`ImportError` at the top-level import — see `TODO.md` for the full picture and what unblocking
-any of them actually needs.
+`main.py` and `sim_many_mrta.py` are still broken (depended on `client.control`/`report`), and so
+are `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py` (imported a concrete
+`PathPlanner` from `algo/` by name) — all five raise `ImportError` at the top-level import, see
+`TODO.md`. `pibt/demo_one_shot.py` is the first thing in the repo that runs a full tick end to
+end again: `python -m pibt.demo_one_shot` wires a `Grid2D`, a few `Agent`s, `PIBTPlanner` and
+`FixedGoalDispatcher` (one-shot fixed goals, not `mrta`) and steps the engine to convergence.
 
-There is currently **no test suite either**, and no working de-facto regression check to fall
-back on. `core/` and `mrta/` still import cleanly and their own internals can be exercised
-directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenario wiring needed) — there is
-just nothing that runs a full tick without a `PathPlanner` implementation to plug in.
+There is currently **no test suite either**, and no working de-facto regression check beyond that
+one demo script. `core/`, `mrta/` and `pibt/` all still import cleanly and their own internals can
+be exercised directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenario wiring needed).
 
 ---
 
@@ -63,6 +65,9 @@ just nothing that runs a full tick without a `PathPlanner` implementation to plu
 ├── mrta/          — Multi-Robot Task Allocation, depends only on core   -> mrta/AGENT.md
 │                    task, task_source (+ queue/random/scripted/composite),
 │                    allocator, fleet_manager
+│
+├── pibt/          — Priority Inheritance with Backtracking, depends only on core -> pibt/AGENT.md
+│                    reservation_table, priority_manager, pibt_core, pibt_planner, demo_one_shot
 │
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
@@ -82,10 +87,11 @@ gitignored outputs.
 
 ```
 mrta -> core
+pibt -> core
 ```
 
-There is currently nothing implementing `PathPlanner` or `AssignmentStrategy`, and nothing above
-`mrta` names a concrete one or wires a `TaskDrivenOrchestrator`; see `TODO.md`.
+`pibt/PIBTPlanner` is a concrete `PathPlanner`; there is still nothing implementing
+`AssignmentStrategy`, and nothing wires a `TaskDrivenOrchestrator` above `mrta` — see `TODO.md`.
 
 ---
 
