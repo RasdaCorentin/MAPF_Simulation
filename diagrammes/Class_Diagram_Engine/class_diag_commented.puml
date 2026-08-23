@@ -1,0 +1,257 @@
+' =====================================================================
+'  Annotated class diagram — self-contained (single file, no !include).
+'
+'  Engine-only: this is the whole repository now. The mrta package (task
+'  allocation) was removed outright, not just left off this diagram. What
+'  remains is the world and the tick that advances it, plus the two
+'  abstract seams (PathPlanner, MissionOrchestrator) that let a future
+'  package plug in without core knowing it exists.
+'
+'  Regenerate with:
+'      plantuml diagrammes/Class_Diagram_Engine/class_diag_commented.puml
+'
+'  Output:
+'      class_diag_commented.png
+' =====================================================================
+
+@startuml simulation_class_diagram_commente
+title Simulation — Engine class diagram (annotated: context & design patterns)
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam ArrowColor #333333
+skinparam ClassBorderColor #4A90D9
+skinparam ClassBackgroundColor #EAF4FF
+skinparam ClassHeaderBackgroundColor #4A90D9
+skinparam ClassHeaderFontColor #FFFFFF
+skinparam PackageBorderColor #888888
+skinparam PackageBackgroundColor #F8F8F8
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+skinparam linetype ortho
+
+' =====================================================================
+'  core — the world and the tick that advances it
+' =====================================================================
+package "core" #EAF4FF {
+
+    package "entities" {
+        class Coordinates2D <<value object>> {
+            + x : int
+            + y : int
+            --
+            + __add__(other: Coordinates2D) : Coordinates2D
+        }
+
+        enum Orientation <<value object>> {
+            NORTH
+            EAST
+            SOUTH
+            WEST
+        }
+        note bottom of Orientation
+          **Heading, not yet wired to a planner**
+          Cardinal direction, carried by Agent alongside position.
+          Exists for a future LoRR-style export (PlanViz reads a
+          per-agent heading and discrete R/F/W actions per tick).
+          rotate_to() lets an engine transaction apply it, but no
+          PathPlanner sets StepOutcome.orientations yet, so an
+          agent's heading never actually changes today.
+        end note
+
+        class WorldEntity {
+            + entity_id       : int
+            + position        : Coordinates2D
+            + appear_at       : int
+            + blocks_movement : bool
+            + scale           : int = 1
+            --
+            + is_active : bool
+        }
+
+        class Agent {
+            + agent_id    : int
+            + steps_taken : int
+            + orientation : Orientation
+            --
+            + move_to(new_position: Coordinates2D) : void
+            + rotate_to(new_orientation: Orientation) : void
+        }
+
+        class Objective {
+            - _assignee : Agent | None
+            --
+            + attach_to(agent: Agent) : void
+        }
+        note bottom of Objective
+          **A goal, not an obstacle**
+          Objective is a WorldEntity like any other — placed and
+          indexed the same way, no special taxonomy needed. attach_to()
+          is its only behavior: it binds this Objective to one specific
+          Agent, the one allowed to complete it.
+        end note
+
+    }
+
+    package "environment" {
+        class Grid2D {
+            + width  : int
+            + height : int
+            - _agents : dict[Coordinates2D, Agent]
+            - _static : dict[Coordinates2D, list[WorldEntity]]
+            --
+            + is_within_bounds(position: Coordinates2D) : bool
+            + is_blocked(position: Coordinates2D) : bool
+            + place(entity: WorldEntity) : void
+            + unindex(entity: WorldEntity) : void
+            + agent_at(position: Coordinates2D) : Agent | None
+        }
+    }
+
+    package "engine" {
+        class StepOutcome <<DTO>> {
+            + positions    : dict[int, Coordinates2D]
+            + moves        : dict[int, tuple]
+            + order        : list[int]
+            + inheritance  : list[tuple]
+            + priorities   : dict[int, float]
+            + orientations : dict[int, Orientation]
+        }
+
+        class AssignmentManifest <<DTO>> {
+            + goals      : list[Objective]
+            + priorities : dict[int, float]
+        }
+        note bottom of AssignmentManifest
+          **The only channel between the two sides**
+          One tick's complete answer to "where should everyone go?" —
+          a list of Objectives, each already attach_to()'d to the agent
+          it is for, plus an optional priority per agent, frozen.
+          Nothing else may set a planner's goals, so any MissionOrchestrator
+          pairs with any PathPlanner, and every tick leaves an
+          auditable record of what was asked.
+        end note
+
+        abstract class PathPlanner <<Strategy>> {
+            + {abstract} plan(agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) : StepOutcome
+        }
+
+        abstract class MissionOrchestrator <<Strategy>> {
+            + {abstract} assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
+        }
+        note bottom of MissionOrchestrator
+          **The two questions of the simulation, kept apart**
+          MissionOrchestrator answers WHERE each robot should go — a
+          business decision: which job matters, who is free.
+          PathPlanner answers HOW they get there — a geometric one:
+          paths and collisions.
+          Both are abstract and live in core, so the engine runs a tick
+          without knowing that task allocation or PIBT exist. Swap
+          either side and the other is unaffected.
+        end note
+
+        class WorldEngine {
+            + grid         : Grid2D
+            + agents       : list[Agent]
+            + entities     : list[WorldEntity]
+            - _pending     : list[WorldEntity]
+            + current_step : int
+            + planner      : PathPlanner
+            + orchestrator : MissionOrchestrator | None
+            + last_intent  : AssignmentManifest
+            --
+            + register_agent(agent: Agent) : void
+            + spawn_static_obstacle(entity: WorldEntity) : void
+            + advance_time_step() : StepOutcome
+        }
+        note top of WorldEngine
+          **The engine — one tick of the world**
+          Every step runs the same three phases, in this order:
+            1. **assign missions** — ask the MissionOrchestrator where each agent goes
+            2. **plan**            — ask the PathPlanner how to move them there
+            3. **move**            — apply the plan to the grid
+          Because the engine owns that order, goals can never be stale
+          and a caller cannot plan before assigning missions. All agents
+          move inside one transaction, so two of them can swap cells
+          without either seeing the grid half-updated.
+        end note
+    }
+}
+
+' ── Diamond convention ────────────────────────────────────────────
+' One rule, applied throughout, so the diamonds carry information
+' instead of being decided case by case:
+'
+'   filled  (*--)  an IMMUTABLE value, held by value — sharing the same
+'                  instance is meaningless, so ownership is moot
+'                  (Coordinates2D, AssignmentManifest, StepOutcome) —
+'                  or a MUTABLE object with a single, exclusive owner
+'                  (WorldEngine's entities, WorldEntity's position).
+'   hollow  (o--)  a MUTABLE object whose instance is SHARED. The holder
+'                  reads or indexes it; something else governs its life.
+'
+' The two edges that changed under this rule are Grid2D -> WorldEntity
+' and WorldEngine -> Grid2D; see the comments on each.
+
+' ── Inheritance & entities ────────────────────────────────────────
+WorldEntity <|-- Agent
+WorldEntity <|-- Objective
+WorldEntity "1" *-- "1" Coordinates2D : position
+' Filled diamond: Coordinates2D is immutable, so sharing an instance is
+' meaningless and ownership is moot — the same rule as above.
+
+Agent "1" *-- "1" Orientation : orientation
+' Same rule again: Orientation is an enum (immutable), so a filled
+' diamond, same as Coordinates2D above — not yet set by any planner,
+' see the note on Orientation.
+
+' Objective -> Agent is neither: it's a single optional reference to an
+' externally-owned object, not a collection to index (hollow) nor
+' something Objective's lifecycle governs (filled). Plain association,
+' set by attach_to().
+Objective "0..1" --> "1" Agent : assignee
+
+' Hollow: AssignmentManifest.goals references Objective instances that
+' already exist in WorldEngine.entities — it doesn't create or own
+' them, just names which ones matter for this tick, same reasoning as
+' Grid2D -> WorldEntity above.
+AssignmentManifest "1" o-- "0..*" Objective : goals
+
+' ── Grid2D ──────────────────────────────────────────────────
+' Aggregation, not composition: Grid2D is a spatial INDEX, not a
+' store. An entity lives in WorldEngine.entities (and in _pending, before
+' the grid has ever seen it), and grid.unindex(agent) during the lift
+' phase of a step does not end its life — it un-indexes it for a few
+' lines. A filled diamond here would claim the opposite, and would also
+' contradict WorldEngine *-- WorldEntity just below: two exclusive
+' owners of one object cannot both be right.
+Grid2D "1" o-- "0..*" WorldEntity : "> index"
+
+' ── Engine: simulation loop ───────────────────────────────────────
+' Aggregation: whatever builds the scenario hands the same Grid2D
+' instance to WorldEngine. WorldEngine drives the grid; it does not own
+' it exclusively.
+WorldEngine "1" o-- "1" Grid2D        : grid
+WorldEngine "1" *-- "0..*" WorldEntity    : entities
+WorldEngine "1" o-- "1" PathPlanner         : planner
+WorldEngine "1" o-- "0..1" MissionOrchestrator : orchestrator (optional)
+WorldEngine "1" *-- "1" AssignmentManifest  : last_intent
+PathPlanner ..> StepOutcome : «returns»
+PathPlanner ..> AssignmentManifest : «reads»
+MissionOrchestrator ..> AssignmentManifest : «returns»
+
+' =====================================================================
+'  Page-level legend — the 30-second read.
+' =====================================================================
+legend bottom left
+  **What this diagram covers**
+  The pure engine: the world (grid, agents, entities) and the tick that
+  advances it. Task allocation — who does which job — used to live in
+  the mrta package, removed from the repository; the MissionOrchestrator
+  seam through which it plugged in is all that remains.
+  There is currently no concrete PathPlanner or MissionOrchestrator
+  implementation in the repository, and no supported way to drive or
+  watch a run end to end — see TODO.md.
+end legend
+
+@enduml
