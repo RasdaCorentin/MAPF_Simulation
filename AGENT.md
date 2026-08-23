@@ -23,8 +23,8 @@ direction, the rules and the invariants. Everything about a specific class lives
 
 | Guide | Covers |
 |---|---|
-| [`core/AGENT.md`](core/AGENT.md) | `Position`, `WorldEntity`, `Zone`, `Agent`, `Grid`, `PlanResult`, `DispatchIntent`, `Coordinator`, `Dispatcher`, `Simulation` — and the tick |
-| [`mrta/AGENT.md`](mrta/AGENT.md) | `Task` lifecycle, task sources, `FleetManager`, eligibility, the watchdog, domain vocabulary |
+| [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Agent`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
+| [`mrta/AGENT.md`](mrta/AGENT.md) | `Mission` lifecycle, mission sources, `TaskDrivenOrchestrator`, eligibility, the watchdog, domain vocabulary |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough. Changing a *seam* between two — an ABC,
@@ -39,14 +39,14 @@ for exactly what that broke and why it was left broken rather than patched.
 
 Nothing runs end to end right now. `main.py` and `sim_many_mrta.py` were broken first (depended
 on `client.control`/`report`); `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py`
-were broken after (depended on a concrete `Coordinator` from `algo/`). All five raise
+were broken after (depended on a concrete `PathPlanner` from `algo/`). All five raise
 `ImportError` at the top-level import — see `TODO.md` for the full picture and what unblocking
 any of them actually needs.
 
 There is currently **no test suite either**, and no working de-facto regression check to fall
 back on. `core/` and `mrta/` still import cleanly and their own internals can be exercised
-directly (construct a `Grid`/`Agent`/`Task` by hand, no scenario wiring needed) — there is just
-nothing that runs a full tick without a `Coordinator` implementation to plug in.
+directly (construct a `Grid2D`/`Agent`/`Mission` by hand, no scenario wiring needed) — there is
+just nothing that runs a full tick without a `PathPlanner` implementation to plug in.
 
 ---
 
@@ -55,7 +55,7 @@ nothing that runs a full tick without a `Coordinator` implementation to plug in.
 ```
 .
 ├── core/          — pure engine, zero rendering dependency        -> core/AGENT.md
-│   ├── entities/  — position.py, entity.py, zone.py, agent.py
+│   ├── entities/  — position.py, entity.py, agent.py
 │   ├── environment/ — grid.py (spatial source of truth)
 │   └── engine/    — plan_result, dispatch_intent, coordinator, dispatcher,
 │                    static_dispatcher, simulation
@@ -67,7 +67,7 @@ nothing that runs a full tick without a `Coordinator` implementation to plug in.
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
 ├── sim_many_mrta.py      — BROKEN: same reason — see TODO.md
-├── sim_many_pibt.py      — BROKEN: imported a concrete Coordinator from algo/, removed — see TODO.md
+├── sim_many_pibt.py      — BROKEN: imported a concrete PathPlanner from algo/, removed — see TODO.md
 ├── sim_many_lacam.py     — BROKEN: same reason — see TODO.md
 ├── sim_many_pibt_plus.py — BROKEN: same reason — see TODO.md
 ├── TODO.md · README.md · GUIDE.md · CONVENTION.md · CLAUDE.md
@@ -84,8 +84,8 @@ gitignored outputs.
 mrta -> core
 ```
 
-There is currently nothing implementing `Coordinator` or `Allocator`, and nothing above `mrta`
-names a concrete one or wires a `FleetManager`; see `TODO.md`.
+There is currently nothing implementing `PathPlanner` or `AssignmentStrategy`, and nothing above
+`mrta` names a concrete one or wires a `TaskDrivenOrchestrator`; see `TODO.md`.
 
 ---
 
@@ -116,7 +116,7 @@ break it. When in doubt, the class diagram arbitrates.
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
 
   Never edit the generated PNGs. There is no sequence diagram: `sequence_tick.puml` was dropped —
-  the tick order it showed is stated on `Simulation` in the class diagram and in
+  the tick order it showed is stated on `WorldEngine` in the class diagram and in
   [`core/AGENT.md`](core/AGENT.md). There is currently no `Object_Diagram/` either — both
   modeled a concrete tick through classes that no longer exist; see `diagrammes/AGENT.md`.
 
@@ -124,21 +124,23 @@ break it. When in doubt, the class diagram arbitrates.
 
 | Constraint | Detail |
 |---|---|
-| One agent per cell | `Grid.place()` raises; `Simulation.step()` lifts all movers before placing them |
-| `Position` is immutable | frozen dataclass, never mutated |
+| One agent per cell | `Grid2D.place()` raises; `WorldEngine.advance_time_step()` lifts all movers before placing them |
+| `Coordinates2D` is immutable | frozen dataclass, never mutated |
 | `Agent` is hashable | via `agent_id`, usable as a dict key |
 | Deferred spawn | `appear_at > 0` -> held in `_pending` until the right step |
-| Coordinator is mandatory | `Simulation` refuses to run without one; a dispatcher is optional |
+| PathPlanner is mandatory | `WorldEngine` refuses to run without one; a mission orchestrator is optional |
 | Obstacle = WorldEntity | `WorldEntity(id, pos, blocks_movement=True)` suffices — no subclass |
-| A zone labels ground | `Zone` never blocks movement and is indexed at every cell it covers; `get_all()` returns it once |
-| `PlanResult` is the universal contract | every `Coordinator.plan()` returns one; diagnostics are optional |
-| `DispatchIntent` decouples allocation from navigation | goals/priorities flow only through the intent; no external mutation of the coordinator, so any Coordinator pairs with any Dispatcher |
-| Single mover | only `Simulation.step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
-| Plans are validated, not rolled back | `Simulation._validate()` rejects an inapplicable `PlanResult` **before** any mutation, so the lift/place transaction cannot fail partially |
-| Task identity belongs to the registry | `FleetManager` stamps `task_id` at intake; sources propose tasks without one, so several sources cannot collide (`Task` hashes on `task_id`) |
-| No unreachable task consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
+| `StepOutcome` is the universal contract | every `PathPlanner.plan()` returns one; diagnostics are optional |
+| `AssignmentManifest` decouples allocation from navigation | goals/priorities flow only through the manifest; no external mutation of the planner, so any PathPlanner pairs with any MissionOrchestrator |
+| Single mover | only `WorldEngine.advance_time_step()` moves agents (lift→`move_to`→place); `agent.move_to` alone must not be called |
+| Plans are validated, not rolled back | `WorldEngine._validate_plan()` rejects an inapplicable `StepOutcome` **before** any mutation, so the lift/place transaction cannot fail partially |
+| Mission identity belongs to the registry | `TaskDrivenOrchestrator` stamps `task_id` at intake; sources propose missions without one, so several sources cannot collide (`Mission` hashes on `task_id`) |
+| No unreachable mission consumes an agent | intake guard + progress watchdog release the assignee and end in `FAILED`, **counted** not dropped |
 
 A few invariants used to live here that named `algo/` classes directly (PIBT's goal-stability
 rule, its `-inf` demotion policy, the two allocators' seeded-RNG guarantee) — dropped along with
 `algo/` itself rather than kept as a promise nothing currently makes. Whatever implements
-`Coordinator`/`Allocator` next should restate the ones that still apply to it.
+`PathPlanner`/`AssignmentStrategy` next should restate the ones that still apply to it.
+
+No invariant currently describes a multi-cell entity: `Zone` filled that role and was removed
+once nothing depended on it — see [`core/AGENT.md`](core/AGENT.md).

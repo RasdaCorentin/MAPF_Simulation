@@ -8,15 +8,19 @@
 moves them. It imports **nothing** from `mrta/` — the dependency is strictly one-directional,
 which is what lets an algorithm or an allocator be swapped without the engine noticing.
 
-### `Position` — `core/entities/position.py`
+### `Coordinates2D` — `core/entities/position.py`
 ```python
 @dataclass(frozen=True)
-class Position:
+class Coordinates2D:
     x: int
     y: int
-    def __add__(self, other: Position) -> Position  # vector addition
+    def __add__(self, other: Coordinates2D) -> Coordinates2D  # vector addition
+
+def manhattan_distance(a: Coordinates2D, b: Coordinates2D) -> int   # module-level helper
 ```
-Hashable (frozen). Used as a dict key in `Grid._agents` and `Grid._static`.
+Hashable (frozen). Used as a dict key in `Grid2D._agents` and `Grid2D._static`.
+`manhattan_distance()` is the one Manhattan-distance helper for the whole codebase — `mrta`'s
+watchdog calls it directly instead of each caller carrying its own copy.
 
 ---
 
@@ -24,47 +28,25 @@ Hashable (frozen). Used as a dict key in `Grid._agents` and `Grid._static`.
 ```python
 class WorldEntity:
     entity_id:       int
-    position:        Position
+    position:        Coordinates2D
     appear_at:       int   # step at which the entity spawns (0 = immediate)
     blocks_movement: bool  # True -> cell impassable for agents
     scale:           int   # RESERVED — stored, never read (see below)
-    cells:           tuple # property, the cells occupied — (position,) unless overridden
-    active:          bool  # property, True by default
+    is_active:       bool  # property, True by default
 ```
-Common base for any entity placed on the grid. Blocking obstacles are created with `WorldEntity(id, pos, blocks_movement=True)` — **no dedicated subclass needed**.
+Common base for any entity placed on the grid. Blocking obstacles are created with `WorldEntity(id, pos, blocks_movement=True)` — **no dedicated subclass needed**. Every entity is indexed at its single `position`; there is currently no multi-cell entity (`Zone` filled that role and was removed — see below).
 
-**`cells` is what `Grid` indexes**, so the grid can place any entity without knowing which kinds
-span more than one cell. The base returns `(position,)`; only `Zone` overrides it.
+⚠ **`scale` is still reserved and read nowhere in the repo.** It would express a movement
+*footprint* — "how much room does it need to move?" — and would force `Grid2D`, `is_blocked`,
+`WorldEngine._validate_plan` and a planner's candidate generation to change together. It is
+assigned in `__init__` and nothing else: do not write code that assumes it works.
 
-⚠ **`cells` is not `scale`, and `scale` is still reserved.** `cells` is an explicit list for
-*indexing* — "where do I find this entity?". `scale` would be a movement *footprint* — "how much
-room does it need to move?" — and would force `Grid`, `is_blocked`, `Simulation._validate` and
-a coordinator's candidate generation to change together. `scale` is assigned in `__init__` and
-read nowhere in the repo: do not write code that assumes it works.
-
----
-
-### `Zone` — `core/entities/zone.py`
-```python
-class Zone(WorldEntity):
-    name:  str
-    cells: tuple[Position]              # read-only, declaration order, de-duplicated
-    def contains(position) -> bool
-    Zone(entity_id, name, cells, appear_at=0)   # raises on an empty cell list
-```
-A named region an operator addresses by name instead of by coordinates — loading station,
-working space, empty-rack area. Like any `WorldEntity` it can spawn late and go inactive.
-
-**It never blocks movement**: a zone labels ground, it does not occupy it. Robots cross it and
-park in it exactly as before, which is what lets zones be added to a running scenario without
-the planner changing at all.
-
-**Indexed at *each* of its cells**, not at one anchor, so "what is here?" finds it anywhere
-inside. The inherited `position` is a nominal anchor kept only so a `Zone` is a `WorldEntity`
-like any other; `cells` is what `Grid` indexes.
-
-It deliberately does **not** use `WorldEntity.scale` — see the warning above. `cells` is an
-explicit list and forces nothing else to change.
+**`Zone` was removed.** A named, multi-cell region (`Zone(entity_id, name, cells, appear_at=0)`,
+indexed at every cell it covered) used to live at `core/entities/zone.py`. It never blocks
+movement and nothing in the codebase depends on it any more, so it was deleted outright rather
+than kept stale — along with the `cells` property on `WorldEntity` and the per-cell iteration in
+`Grid2D.place()` / `unindex()` / `all_of_kind()` that existed only to support it. Reinstating a
+multi-cell entity means reintroducing both pieces together.
 
 ---
 
@@ -74,129 +56,133 @@ class Agent(WorldEntity):
     agent_id:    int        # alias of entity_id
     steps_taken: int
     blocks_movement = True  # (passed to super().__init__)
-    def move_to(new_position: Position)   # updates position + steps_taken
-    def __eq__ / __hash__                 # based on agent_id — hashable, usable as a dict key
+    def move_to(new_position: Coordinates2D)   # updates position + steps_taken
+    def __eq__ / __hash__                      # based on agent_id — hashable, usable as a dict key
 ```
-`agent_id` is immutable -> stable hash. Meant to be used as a dict key wherever a coordinator
+`agent_id` is immutable -> stable hash. Meant to be used as a dict key wherever a planner
 tracks per-agent state — goals, priorities, reservations; PIBT did exactly this before `algo/`
 was removed (see `TODO.md`).
-Constructor: `Agent(agent_id, position)` — no strategy of its own, movement is always delegated to the `Coordinator`.
+Constructor: `Agent(agent_id, position)` — no strategy of its own, movement is always delegated to the `PathPlanner`.
 
 ---
 
-### `Grid` — `core/environment/grid.py`
+### `Grid2D` — `core/environment/grid.py`
 ```python
-class Grid:
+class Grid2D:
     width: int
     height: int
-    _agents: dict[Position, Agent]
-    _static: dict[Position, list[WorldEntity]]
+    _agents: dict[Coordinates2D, Agent]
+    _static: dict[Coordinates2D, list[WorldEntity]]
 
-    is_valid(position) -> bool
-    is_blocked(position) -> bool        # True if an agent OR an active blocking entity occupies it
-    place(entity: WorldEntity)          # indexes it at EVERY entity.cells; raises if invalid
-                                        # or if an agent cell is already taken
-    remove(entity: WorldEntity)
-    get_agent_at(position) -> Agent | None
-    get_entities_at(position, kind=None) -> list[WorldEntity]   # filters active=True on _static
-    get_all(kind=None) -> list[WorldEntity]
+    is_within_bounds(position) -> bool
+    is_blocked(position) -> bool          # True if an agent OR an active blocking entity occupies it
+    place(entity: WorldEntity)            # indexes it at entity.position; raises if out of bounds
+                                          # or if an agent cell is already taken
+    unindex(entity: WorldEntity)
+    agent_at(position) -> Agent | None
+    entities_at(position, kind=None) -> list[WorldEntity]   # filters is_active=True on _static
+    all_of_kind(kind=None) -> list[WorldEntity]
 ```
+Each entity is indexed at exactly one cell, its `position` — there is no multi-cell entity left
+in the codebase (see the `Zone` removal note above), so `all_of_kind()` no longer needs to
+de-duplicate.
 
 ---
 
-### `PlanResult` — `core/engine/plan_result.py`
+### `StepOutcome` — `core/engine/plan_result.py`
 ```python
 @dataclass(frozen=True)
-class PlanResult:
-    positions:   dict[int, Position]   # agent_id -> next Position (universal contract)
-    moves:       dict[int, tuple]      # agent_id -> (from, to)     (universal contract)
-    order:       list[int]             # agent_ids in priority order   (optional diagnostic)
-    inheritance: list[tuple]           # (pusher_id, pushed_id)        (optional diagnostic)
-    priorities:  dict[int, float]      # agent_id -> priority          (optional diagnostic)
+class StepOutcome:
+    positions:   dict[int, Coordinates2D]   # agent_id -> next Coordinates2D (universal contract)
+    moves:       dict[int, tuple]           # agent_id -> (from, to)          (universal contract)
+    order:       list[int]                  # agent_ids in priority order        (optional diagnostic)
+    inheritance: list[tuple]                # (pusher_id, pushed_id)             (optional diagnostic)
+    priorities:  dict[int, float]           # agent_id -> priority               (optional diagnostic)
 ```
-DTO returned by every `Coordinator.plan()` call. `positions`/`moves` are the contract every coordinator fills; the rest are diagnostics a coordinator may leave empty if it has nothing to report there — PIBT was the one implementation that populated all three, before `algo/` was removed (see `TODO.md`). Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
+DTO returned by every `PathPlanner.plan()` call. `positions`/`moves` are the contract every planner fills; the rest are diagnostics a planner may leave empty if it has nothing to report there — PIBT was the one implementation that populated all three, before `algo/` was removed (see `TODO.md`). Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
 
 **Frozen**, like every value crossing a package boundary in this project: a caller can hold onto
-the object `Simulation.step()` returned without the engine being able to rewrite it later — the
-guarantee rests on the type rather than on the convention that coordinators build the object
-whole and nobody writes to it afterwards. The contained dicts are not deep-frozen — this is a
-guard, not a proof.
+the object `WorldEngine.advance_time_step()` returned without the engine being able to rewrite it
+later — the guarantee rests on the type rather than on the convention that planners build the
+object whole and nobody writes to it afterwards. The contained dicts are not deep-frozen — this
+is a guard, not a proof.
 
 ---
 
-### `DispatchIntent` — `core/engine/dispatch_intent.py`
+### `AssignmentManifest` — `core/engine/dispatch_intent.py`
 ```python
 @dataclass(frozen=True)
-class DispatchIntent:
-    goals:      dict[int, Position]   # agent_id -> target (absolute, this tick)
-    priorities: dict[int, float]      # agent_id -> allocation priority (optional per agent)
+class AssignmentManifest:
+    goals:      dict[int, Coordinates2D]   # agent_id -> target (absolute, this tick)
+    priorities: dict[int, float]           # agent_id -> allocation priority (optional per agent)
 ```
-Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `Dispatcher`, consumed by `Coordinator.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the coordinator, which keeps allocation (`mrta`) and navigation (whatever implements `Coordinator`) decoupled and gives an auditable per-tick record.
+Immutable, `agent_id`-keyed carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `MissionOrchestrator`, consumed by `PathPlanner.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the planner, which keeps allocation (`mrta`) and navigation (whatever implements `PathPlanner`) decoupled and gives an auditable per-tick record.
 
 ---
 
-### `Coordinator` — `core/engine/coordinator.py`
+### `PathPlanner` — `core/engine/coordinator.py`
 ```python
-class Coordinator(ABC):
+class PathPlanner(ABC):
     @abstractmethod
-    def plan(self, agents: list[Agent], grid: Grid, intent: DispatchIntent) -> PlanResult: ...
+    def plan(self, agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) -> StepOutcome: ...
 ```
-The single-method interface for every MAPF algorithm. Goals and priorities arrive only through `intent`; a priority-less coordinator (e.g. random walk) simply ignores `intent.priorities`. Any `Coordinator` can therefore be paired with any `Dispatcher`.
+The single-method interface for every MAPF algorithm. Goals and priorities arrive only through `intent`; a priority-less planner (e.g. random walk) simply ignores `intent.priorities`. Any `PathPlanner` can therefore be paired with any `MissionOrchestrator`.
 
 ---
 
-### `Dispatcher` / `StaticDispatcher` — `core/engine/dispatcher.py`, `static_dispatcher.py`
+### `MissionOrchestrator` / `FixedGoalDispatcher` — `core/engine/dispatcher.py`, `static_dispatcher.py`
 ```python
-class Dispatcher(ABC):
+class MissionOrchestrator(ABC):
     @abstractmethod
-    def dispatch(self, agents: list[Agent], grid: Grid, step: int) -> DispatchIntent: ...
+    def assign_missions(self, agents: list[Agent], grid: Grid2D, step: int) -> AssignmentManifest: ...
 
-class StaticDispatcher(Dispatcher):
-    def __init__(self, goals: dict[int, Position], priorities: dict[int, float] | None = None): ...
-    def dispatch(self, agents, grid, step) -> DispatchIntent   # same fixed intent every tick
+class FixedGoalDispatcher(MissionOrchestrator):
+    def __init__(self, goals: dict[int, Coordinates2D], priorities: dict[int, float] | None = None): ...
+    def assign_missions(self, agents, grid, step) -> AssignmentManifest   # same fixed manifest every tick
 ```
-Pre-planning hook: `Simulation.step()` runs the dispatcher (if attached) **before** `plan()` and passes the returned intent to it, so goals are never stale by construction. It never touches the coordinator. Living in `core` lets `Simulation` own the tick order (dispatch → plan) **without importing `mrta`** — the same dependency-inversion seam as `Coordinator`. `FleetManager` (`mrta`) and `StaticDispatcher` are the concrete dispatchers; use `StaticDispatcher` for fixed-goal scenarios that need no task allocation.
+Pre-planning hook: `WorldEngine.advance_time_step()` runs the orchestrator (if attached) **before** `plan()` and passes the returned manifest to it, so goals are never stale by construction. It never touches the planner. Living in `core` lets `WorldEngine` own the tick order (assign missions → plan) **without importing `mrta`** — the same dependency-inversion seam as `PathPlanner`. `TaskDrivenOrchestrator` (`mrta`) and `FixedGoalDispatcher` are the concrete orchestrators; use `FixedGoalDispatcher` for fixed-goal scenarios that need no task allocation.
 
 ---
 
-### `Simulation` — `core/engine/simulation.py`
+### `WorldEngine` — `core/engine/simulation.py`
 ```python
-class Simulation:
-    grid:         Grid
+class WorldEngine:
+    grid:         Grid2D
     agents:       list[Agent]
     entities:     list[WorldEntity]
     _pending:     list[WorldEntity]
     current_step: int
-    coordinator:  Coordinator            # mandatory — no per-agent fallback
-    dispatcher:   Dispatcher | None       # optional — produces this tick's intent
-    last_intent:  DispatchIntent          # the intent used by the last step (auditable)
+    coordinator:  PathPlanner              # mandatory — no per-agent fallback
+    dispatcher:   MissionOrchestrator | None   # optional — produces this tick's manifest
+    last_intent:  AssignmentManifest           # the manifest used by the last step (auditable)
 
     __init__(grid, coordinator, dispatcher=None)
-    add_agent(agent)         # place + append
-    add_object(entity)       # append + place immediately if appear_at <= current_step
-    step() -> PlanResult     # spawn -> dispatch -> plan -> validate -> lift -> place
-    _validate(result)        # rejects an inapplicable plan BEFORE any mutation
+    register_agent(agent)              # place + append
+    spawn_static_obstacle(entity)      # append + place immediately if appear_at <= current_step
+    advance_time_step() -> StepOutcome # spawn -> assign missions -> plan -> validate -> lift -> place
+    _validate_plan(result)             # rejects an inapplicable plan BEFORE any mutation
 ```
 
-**`step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared against the
-already-incremented step (an entity with `appear_at=1` spawns on the first `step()`):
+**`advance_time_step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared
+against the already-incremented step (an entity with `appear_at=1` spawns on the first
+`advance_time_step()`):
 ```python
 # 1. Spawn deferred entities whose appear_at step has been reached
-# 2. Dispatch: intent = self.dispatcher.dispatch(...) if dispatcher else DispatchIntent()  (empty)
+# 2. Assign missions: intent = self.dispatcher.assign_missions(...) if dispatcher else AssignmentManifest()  (empty)
 #    stored in self.last_intent
 # 3. Coordinated planning (mandatory): result = self.coordinator.plan(self.agents, self.grid, intent)
-# 4. Validate: self._validate(result) — raises before the grid is touched
-# 5. Lift:  grid.remove(agent) for every agent whose target differs from its position
+# 4. Validate: self._validate_plan(result) — raises before the grid is touched
+# 5. Lift:  grid.unindex(agent) for every agent whose target differs from its position
 # 6. Place: agent.move_to(target) then grid.place(agent)
-#    Return result — a caller reads diagnostics from it without importing the coordinator's package
+#    Return result — a caller reads diagnostics from it without importing the planner's package
 ```
-The `dispatch → plan` order is owned by `step()`, so a caller cannot plan on stale goals. Movement is applied by `step()` itself (lift-then-place) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
+The `assign missions → plan` order is owned by `advance_time_step()`, so a caller cannot plan on stale goals. Movement is applied by `advance_time_step()` itself (lift-then-place) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
 
-**`_validate()` rejects three things**, before any mutation, so the lift/place transaction cannot
+**`_validate_plan()` rejects three things**, before any mutation, so the lift/place transaction cannot
 fail halfway and strand agents off the grid:
 1. **two agents claiming one cell** — checked for *every* agent, stationary ones included, so a
    mover cannot target a cell a stationary agent is keeping;
-2. **a target off the grid** (`not grid.is_valid`);
+2. **a target off the grid** (`not grid.is_within_bounds`);
 3. **a target under an active blocking entity**.
 
 Checks 2 and 3 are **deliberately skipped for agents that do not move**. An obstacle spawning via
@@ -213,12 +199,8 @@ it is not — the planner never proposed that overlap.
 > true and they matter, but each belongs in a diagram that does not exist yet.
 > **Delete an entry the moment its diagram carries it.**
 
-- `Grid.get_all()` **de-duplicates** — a zone eight cells wide is indexed eight times but
-  returned once, so a caller cannot draw or count it eight times. The key is **object
-  identity, not `entity_id`**: ids are unique per family (agents, obstacles and zones each
-  number from 0), so keying on the id would silently merge an obstacle with a zone.
-- `Simulation._validate()` skips the off-grid and blocked-cell checks for agents that do not
+- `WorldEngine._validate_plan()` skips the off-grid and blocked-cell checks for agents that do not
   move, so an obstacle spawning via `appear_at` onto an occupied cell is not reported as a
   planning error.
-- `Grid.get_entities_at` / `get_all` and `Simulation._validate` were dropped from the class
-  diagram as secondary; they remain part of the API.
+- `Grid2D.entities_at` / `all_of_kind` and `WorldEngine._validate_plan` were dropped from the
+  class diagram as secondary; they remain part of the API.
