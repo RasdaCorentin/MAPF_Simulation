@@ -1,6 +1,6 @@
 from typing import Optional
 
-from ..environment.grid import SpatialIndex
+from ..environment.grid import Grid2D
 from ..entities.agent import Agent
 from ..entities.position import Coordinates2D
 from ..entities.entity import SpatialEntity
@@ -24,7 +24,7 @@ class WorldEngine:
 
     def __init__(
         self,
-        grid: SpatialIndex,
+        grid: Grid2D,
         coordinator: PathPlanner,
         dispatcher: Optional[MissionOrchestrator] = None,
     ) -> None:

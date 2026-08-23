@@ -1,6 +1,6 @@
 """Multi-Robot Task Allocation: missions, sources, allocation and assignment.
 
-Depends only on core (Agent, SpatialIndex, Coordinates2D, MissionOrchestrator,
+Depends only on core (Agent, Grid2D, Coordinates2D, MissionOrchestrator,
 AssignmentManifest) — never on algo or client.
 """
 

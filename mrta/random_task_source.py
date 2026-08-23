@@ -1,7 +1,7 @@
 import random
 from typing import Optional
 
-from core import SpatialIndex, Coordinates2D
+from core import Grid2D, Coordinates2D
 
 from .task import Mission
 from .task_source import MissionSource
@@ -20,7 +20,7 @@ class RandomMissionSource(MissionSource):
 
     def __init__(
         self,
-        grid: SpatialIndex,
+        grid: Grid2D,
         every: int = 5,
         count: int = 1,
         seed: Optional[int] = None,

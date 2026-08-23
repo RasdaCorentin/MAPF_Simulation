@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..entities.agent import Agent
-    from ..environment.grid import SpatialIndex
+    from ..environment.grid import Grid2D
     from .dispatch_intent import AssignmentManifest
     from .plan_result import StepOutcome
 
@@ -24,7 +24,7 @@ class PathPlanner(ABC):
     def plan(
         self,
         agents: list["Agent"],
-        grid: "SpatialIndex",
+        grid: "Grid2D",
         intent: "AssignmentManifest",
     ) -> "StepOutcome":
         """Input: all simulated agents, the grid (read-only), and this

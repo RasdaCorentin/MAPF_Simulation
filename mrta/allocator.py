@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from core import Agent, SpatialIndex
+from core import Agent, Grid2D
 
 from .task import Mission
 
@@ -10,7 +10,7 @@ class AssignmentStrategy(ABC):
 
     @abstractmethod
     def match_missions_to_units(
-        self, pending: list[Mission], free: list[Agent], grid: SpatialIndex
+        self, pending: list[Mission], free: list[Agent], grid: Grid2D
     ) -> dict[Mission, Agent]:
         """Input: pending missions, free agents (no assigned mission), and
         the grid (read-only, e.g. for distance-aware strategies).

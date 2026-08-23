@@ -34,7 +34,7 @@ class SpatialEntity:
         Output: every cell the entity occupies — just its position for
         everything except a ``NamedRegion``, which covers several.
 
-        This exists so ``SpatialIndex`` can index any entity without
+        This exists so ``Grid2D`` can index any entity without
         knowing which kinds span more than one cell. It is **not**
         ``scale``: it is an explicit list of cells for *indexing*, whereas
         ``scale`` would be a movement footprint and would require the

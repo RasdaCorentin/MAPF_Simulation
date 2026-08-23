@@ -6,7 +6,7 @@ from .dispatcher import MissionOrchestrator
 
 if TYPE_CHECKING:
     from ..entities.agent import Agent
-    from ..environment.grid import SpatialIndex
+    from ..environment.grid import Grid2D
 
 
 class FixedGoalDispatcher(MissionOrchestrator):
@@ -32,7 +32,7 @@ class FixedGoalDispatcher(MissionOrchestrator):
         )
 
     def assign_missions(
-        self, agents: "list[Agent]", grid: "SpatialIndex", step: int
+        self, agents: "list[Agent]", grid: "Grid2D", step: int
     ) -> AssignmentManifest:
         """Input: agents, grid, step (all ignored).
         Output: the same fixed AssignmentManifest, every tick.

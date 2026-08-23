@@ -1,7 +1,7 @@
 from typing import Optional
 
 from core import (
-    Agent, SpatialIndex, Coordinates2D, AssignmentManifest, MissionOrchestrator,
+    Agent, Grid2D, Coordinates2D, AssignmentManifest, MissionOrchestrator,
     manhattan_distance,
 )
 
@@ -54,7 +54,7 @@ class TaskDrivenOrchestrator(MissionOrchestrator):
         self._next_task_id = 0
 
     def assign_missions(
-        self, agents: list[Agent], grid: SpatialIndex, step: int
+        self, agents: list[Agent], grid: Grid2D, step: int
     ) -> AssignmentManifest:
         """Input: all simulated agents, the grid, and the current step.
         Output: the AssignmentManifest (goals/priorities) for the active
@@ -143,7 +143,7 @@ class TaskDrivenOrchestrator(MissionOrchestrator):
                 kept.append(task)
         self.tasks = kept
 
-    def _intake_new_missions(self, step: int, grid: SpatialIndex) -> None:
+    def _intake_new_missions(self, step: int, grid: Grid2D) -> None:
         """Input: the current simulation step and the grid.
         Output: None. Fetches new missions from the source and registers
         them, failing immediately those whose target is off the grid or
@@ -160,7 +160,7 @@ class TaskDrivenOrchestrator(MissionOrchestrator):
             task.last_improvement_step = step
             self.tasks.append(task)
 
-    def _run_allocation_pass(self, agents: list[Agent], grid: SpatialIndex) -> None:
+    def _run_allocation_pass(self, agents: list[Agent], grid: Grid2D) -> None:
         """Input: all simulated agents and the grid.
         Output: None. Matches pending missions to free agents through the
         allocation strategy and records the assignments.
@@ -234,7 +234,7 @@ class TaskDrivenOrchestrator(MissionOrchestrator):
         return ordered
 
     @staticmethod
-    def _target_is_unreachable(position: Coordinates2D, grid: SpatialIndex) -> bool:
+    def _target_is_unreachable(position: Coordinates2D, grid: Grid2D) -> bool:
         """Input: a position and the grid.
         Output: True if an active blocking entity (not an agent) sits there.
         """

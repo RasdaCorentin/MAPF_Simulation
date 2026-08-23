@@ -5,7 +5,7 @@ from .dispatch_intent import AssignmentManifest
 
 if TYPE_CHECKING:
     from ..entities.agent import Agent
-    from ..environment.grid import SpatialIndex
+    from ..environment.grid import Grid2D
 
 
 class MissionOrchestrator(ABC):
@@ -24,7 +24,7 @@ class MissionOrchestrator(ABC):
 
     @abstractmethod
     def assign_missions(
-        self, agents: list["Agent"], grid: "SpatialIndex", step: int
+        self, agents: list["Agent"], grid: "Grid2D", step: int
     ) -> AssignmentManifest:
         """Input: all simulated agents, the grid, and the current step.
         Output: an AssignmentManifest with the complete goals/priorities for

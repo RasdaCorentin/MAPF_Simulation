@@ -6,7 +6,7 @@ from ..entities.agent import Agent
 E = TypeVar("E", bound=SpatialEntity)
 
 
-class SpatialIndex:
+class Grid2D:
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
@@ -95,4 +95,4 @@ class SpatialIndex:
         return all_entities
 
     def __repr__(self) -> str:
-        return f"SpatialIndex({self.width}x{self.height}, agents={len(self._agents)})"
+        return f"Grid2D({self.width}x{self.height}, agents={len(self._agents)})"

@@ -1,7 +1,7 @@
 """Pure simulation engine — no rendering or algorithm dependencies."""
 
 from .entities import Coordinates2D, manhattan_distance, SpatialEntity, Agent, NamedRegion
-from .environment import SpatialIndex
+from .environment import Grid2D
 from .engine import (
     PathPlanner, StepOutcome, AssignmentManifest,
     MissionOrchestrator, FixedGoalDispatcher, WorldEngine,
@@ -9,7 +9,7 @@ from .engine import (
 
 __all__ = [
     "Coordinates2D", "manhattan_distance", "SpatialEntity", "Agent", "NamedRegion",
-    "SpatialIndex", "WorldEngine",
+    "Grid2D", "WorldEngine",
     "PathPlanner", "StepOutcome", "AssignmentManifest",
     "MissionOrchestrator", "FixedGoalDispatcher",
 ]
