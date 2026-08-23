@@ -18,13 +18,26 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core import Coordinates2D, Agent, Grid2D
+from core import Coordinates2D, Agent, Grid2D, Orientation
 
 from .reservation_table import ReservationTable
 from .priority_manager import PriorityManager
 
 DIRS    = [Coordinates2D(0, -1), Coordinates2D(0, 1), Coordinates2D(-1, 0), Coordinates2D(1, 0)]
 EPSILON = 1e-3
+
+# Heading implied by a one-cell move, keyed by (next - current). Nothing else
+# in the repository documents an x/y <-> compass convention (no PathPlanner
+# ever set StepOutcome.orientations before PIBTPlanner's orientation=True —
+# see core/AGENT.md's note on Agent), so this is established here: x
+# increases East, y increases South (top-left origin), matching DIRS above.
+# Revisit — and move to core — if another PathPlanner needs the same mapping.
+ORIENTATION_BY_DELTA: dict[Coordinates2D, Orientation] = {
+    Coordinates2D(0, -1): Orientation.NORTH,
+    Coordinates2D(0, 1):  Orientation.SOUTH,
+    Coordinates2D(-1, 0): Orientation.WEST,
+    Coordinates2D(1, 0):  Orientation.EAST,
+}
 
 
 def _h(pos: Coordinates2D, agent: Agent, goals: dict[Agent, Coordinates2D]) -> int:

@@ -48,6 +48,17 @@ the agent leaves its goal:
 - `PERMANENT` — never undone. Measurably better under a *static* goal regime
   (`OneShotGoalDispatcher`) — see the docstring on `GoalReachedPolicy` for the numbers.
 
+⚠ **`orientation=True` (constructor argument, default `False`) is cosmetic, not LoRR-semantic.**
+When on, `plan()` also fills `StepOutcome.orientations`: one heading per *moving* agent, derived
+from `(next - current)` via `pibt_core.ORIENTATION_BY_DELTA` — an agent that stays in place is
+simply absent, same convention as `positions`. It does not feed back into candidate selection
+(the heuristic and candidate ranking are unchanged), costs nothing, and does not enforce a
+rotate-XOR-move constraint — an agent can move and face its new direction in the same tick,
+unlike League-of-Robot-Runners semantics (`core/AGENT.md`'s note on `Agent` covers what a real
+rotate-XOR-move model would need, in both `core` and here). `ORIENTATION_BY_DELTA` also
+establishes, for lack of one elsewhere in the repo, the x/y <-> compass convention this planner
+uses: x increases East, y increases South.
+
 ### `OneShotGoalDispatcher` — `pibt/one_shot_dispatcher.py`
 Minimal `MissionOrchestrator` local to this package, not a `core` class: `core`'s own
 `FixedGoalDispatcher` was dropped in 4e0c51f rather than adapted, because it built its

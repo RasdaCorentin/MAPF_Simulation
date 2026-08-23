@@ -33,11 +33,11 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from core import Coordinates2D, PathPlanner, Agent, Grid2D, StepOutcome, AssignmentManifest
+from core import Coordinates2D, Orientation, PathPlanner, Agent, Grid2D, StepOutcome, AssignmentManifest
 
 from .reservation_table import ReservationTable
 from .priority_manager import PriorityManager
-from .pibt_core import run_pibt_pass
+from .pibt_core import run_pibt_pass, ORIENTATION_BY_DELTA
 
 
 class GoalReachedPolicy(Enum):
@@ -90,17 +90,28 @@ class PIBTPlanner(PathPlanner):
     priorities (Priority Inheritance with Backtracking).
     """
 
-    def __init__(self, goal_reached_policy: GoalReachedPolicy = GoalReachedPolicy.TRANSIENT) -> None:
+    def __init__(
+        self,
+        goal_reached_policy: GoalReachedPolicy = GoalReachedPolicy.TRANSIENT,
+        orientation: bool = False,
+    ) -> None:
         """Input: goal_reached_policy — whether the goal-reached -inf
         demotion is undone once the agent leaves its goal (TRANSIENT,
         the default) or never (PERMANENT). See GoalReachedPolicy for
         which goal regime calls for which.
+        orientation — whether plan() also fills StepOutcome.orientations,
+        one heading per moving agent derived from its move direction (see
+        ORIENTATION_BY_DELTA in pibt_core.py). Cosmetic only: it does not
+        feed back into candidate selection, costs nothing, and does not
+        enforce a rotate-XOR-move constraint — an agent can move and
+        "face" its new direction in the same tick. Off by default.
         Output: None. Goals/priorities arrive per tick via the intent.
         """
         self.goals: dict[Agent, Coordinates2D] = {}
         self._reservations = ReservationTable()
         self._priorities = PriorityManager()
         self._goal_reached_policy = goal_reached_policy
+        self._emit_orientation = orientation
         # Last (goal, priority) seen per agent_id — used to re-seed the base
         # priority ONLY when the allocation intent actually changes, so the
         # dynamic priority drift (anti-starvation) is never clobbered.
@@ -183,12 +194,24 @@ class PIBTPlanner(PathPlanner):
             reservation = self._reservations.get_reservation(a)
             positions[a.agent_id] = reservation if reservation is not None else a.position
 
+        # An agent that does not move is simply absent here, same convention
+        # as StepOutcome.positions — it keeps its current heading.
+        orientations: dict[int, Orientation] = {}
+        if self._emit_orientation:
+            for a in agents:
+                next_pos = positions[a.agent_id]
+                delta = Coordinates2D(next_pos.x - a.position.x, next_pos.y - a.position.y)
+                heading = ORIENTATION_BY_DELTA.get(delta)
+                if heading is not None:
+                    orientations[a.agent_id] = heading
+
         result = StepOutcome(
             positions=positions,
             moves={a.agent_id: (a.position, positions[a.agent_id]) for a in agents},
             order=[a.agent_id for a in ordered],
             inheritance=[(p.agent_id, q.agent_id) for p, q in inheritance],
             priorities={a.agent_id: self._priorities.get_priority(a) for a in agents},
+            orientations=orientations,
         )
 
         # Inheritance boosts are scoped to this tick's cascade: undo them now
