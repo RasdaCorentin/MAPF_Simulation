@@ -1,9 +1,9 @@
 from typing import Optional, Type, TypeVar
 from ..entities.position import Coordinates2D
-from ..entities.entity import SpatialEntity
+from ..entities.entity import WorldEntity
 from ..entities.agent import Agent
 
-E = TypeVar("E", bound=SpatialEntity)
+E = TypeVar("E", bound=WorldEntity)
 
 
 class Grid2D:
@@ -11,7 +11,7 @@ class Grid2D:
         self.width = width
         self.height = height
         self._agents: dict[Coordinates2D, Agent] = {}
-        self._static: dict[Coordinates2D, list[SpatialEntity]] = {}
+        self._static: dict[Coordinates2D, list[WorldEntity]] = {}
 
     def is_within_bounds(self, position: Coordinates2D) -> bool:
         return 0 <= position.x < self.width and 0 <= position.y < self.height
@@ -25,7 +25,7 @@ class Grid2D:
             for e in self._static.get(position, [])
         )
 
-    def place(self, entity: SpatialEntity) -> None:
+    def place(self, entity: WorldEntity) -> None:
         """Input: an entity.
         Output: None. Indexes it at every cell it occupies.
 
@@ -46,7 +46,7 @@ class Grid2D:
             for cell in entity.cells:
                 self._static.setdefault(cell, []).append(entity)
 
-    def unindex(self, entity: SpatialEntity) -> None:
+    def unindex(self, entity: WorldEntity) -> None:
         if isinstance(entity, Agent):
             self._agents.pop(entity.position, None)
         else:

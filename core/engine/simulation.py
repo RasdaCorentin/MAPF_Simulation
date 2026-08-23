@@ -3,7 +3,7 @@ from typing import Optional
 from ..environment.grid import Grid2D
 from ..entities.agent import Agent
 from ..entities.position import Coordinates2D
-from ..entities.entity import SpatialEntity
+from ..entities.entity import WorldEntity
 from .coordinator import PathPlanner
 from .dispatcher import MissionOrchestrator
 from .dispatch_intent import AssignmentManifest
@@ -34,8 +34,8 @@ class WorldEngine:
         """
         self.grid = grid
         self.agents: list[Agent] = []
-        self.entities: list[SpatialEntity] = []
-        self._pending: list[SpatialEntity] = []
+        self.entities: list[WorldEntity] = []
+        self._pending: list[WorldEntity] = []
         self.current_step = 0
         self.coordinator = coordinator
         self.dispatcher = dispatcher
@@ -48,7 +48,7 @@ class WorldEngine:
         self.grid.place(agent)
         self.agents.append(agent)
 
-    def spawn_static_obstacle(self, entity: SpatialEntity) -> None:
+    def spawn_static_obstacle(self, entity: WorldEntity) -> None:
         """Input: a world entity (obstacle, ...).
         Output: None. Placed immediately, or deferred until its
         ``appear_at`` step is reached.

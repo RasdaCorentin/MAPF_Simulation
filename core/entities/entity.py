@@ -1,11 +1,11 @@
 from .position import Coordinates2D
 
 
-class SpatialEntity:
+class WorldEntity:
     """Base class for any entity placed on the grid.
 
     Blocking obstacles do not need a dedicated subclass:
-    ``SpatialEntity(id, pos, blocks_movement=True)`` is enough.
+    ``WorldEntity(id, pos, blocks_movement=True)`` is enough.
     Entities with ``appear_at > 0`` are spawned later by the simulation.
     """
 

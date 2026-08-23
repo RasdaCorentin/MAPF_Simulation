@@ -1,15 +1,15 @@
 from typing import Iterable
 
-from .entity import SpatialEntity
+from .entity import WorldEntity
 from .position import Coordinates2D
 
 
-class NamedRegion(SpatialEntity):
+class NamedRegion(WorldEntity):
     """A named region of the grid — "send the fleet to the loading station".
 
     A group of cells the operator addresses by name instead of by
     coordinates: loading station, working space, empty-rack area. Like
-    any SpatialEntity it can spawn late (``appear_at``) and go inactive;
+    any WorldEntity it can spawn late (``appear_at``) and go inactive;
     unlike the others it covers several cells, so the grid indexes it at
     each of them rather than at a single corner. Asking "what is here?"
     anywhere inside a region therefore finds it.
@@ -19,7 +19,7 @@ class NamedRegion(SpatialEntity):
     before, which is what lets it be added to a running scenario without
     touching the planner.
 
-    It deliberately does **not** use ``SpatialEntity.scale``. ``scale`` is
+    It deliberately does **not** use ``WorldEntity.scale``. ``scale`` is
     reserved and unimplemented; making it work would mean an agent
     *footprint*, forcing ``SpatialIndex``, ``is_blocked``,
     ``WorldEngine._validate_plan`` and PIBT's candidate generation to
@@ -42,7 +42,7 @@ class NamedRegion(SpatialEntity):
         if not ordered:
             raise ValueError(f"NamedRegion {name!r} must cover at least one cell.")
         # The inherited ``position`` is a nominal anchor, kept so a
-        # NamedRegion is a SpatialEntity like any other; ``cells`` is what
+        # NamedRegion is a WorldEntity like any other; ``cells`` is what
         # the grid indexes.
         super().__init__(entity_id, ordered[0], appear_at=appear_at, blocks_movement=False)
         self.name = name

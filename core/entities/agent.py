@@ -1,8 +1,8 @@
-from .entity import SpatialEntity
+from .entity import WorldEntity
 from .position import Coordinates2D
 
 
-class Agent(SpatialEntity):
+class Agent(WorldEntity):
     def __init__(self, agent_id: int, position: Coordinates2D) -> None:
         super().__init__(entity_id=agent_id, position=position, blocks_movement=True)
         self.steps_taken = 0
