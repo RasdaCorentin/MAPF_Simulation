@@ -33,20 +33,31 @@ committing to one detour. See the note in `demo_one_shot.py`.
 
 ### `PIBTPlanner` — `pibt/pibt_planner.py`
 Implements `PathPlanner.plan()`. Goals and base priorities are read from the tick's
-`AssignmentManifest` — never set by external mutation. Stateless about allocation, but keeps
-its own navigation state across ticks (dynamic priority drift, reservations). An agent parked
-on its goal is demoted to base priority `-inf` so it stops contesting cells it does not need;
-`GoalReachedPolicy` (constructor argument) decides whether that demotion is undone once the
-agent leaves its goal:
+`AssignmentManifest` — never set by external mutation. `AssignmentManifest.goals` is a
+`list[Objective]` (each already `attach_to()`'d to the one Agent it is for, since 4e0c51f);
+`_apply_intent()` flattens that to `agent_id -> Coordinates2D` once per tick before the rest of
+the planner (unchanged since before `Objective` existed) reads it. Stateless about allocation,
+but keeps its own navigation state across ticks (dynamic priority drift, reservations). An agent
+parked on its goal is demoted to base priority `-inf` so it stops contesting cells it does not
+need; `GoalReachedPolicy` (constructor argument) decides whether that demotion is undone once
+the agent leaves its goal:
 - `TRANSIENT` (default) — undone as soon as the agent leaves its goal. Mandatory under a
   rotating-goal regime (`TaskDrivenOrchestrator`) — an agent that just finished a mission must
   be able to contest a cell again.
 - `PERMANENT` — never undone. Measurably better under a *static* goal regime
-  (`FixedGoalDispatcher`) — see the docstring on `GoalReachedPolicy` for the numbers.
+  (`OneShotGoalDispatcher`) — see the docstring on `GoalReachedPolicy` for the numbers.
+
+### `OneShotGoalDispatcher` — `pibt/one_shot_dispatcher.py`
+Minimal `MissionOrchestrator` local to this package, not a `core` class: `core`'s own
+`FixedGoalDispatcher` was dropped in 4e0c51f rather than adapted, because it built its
+`Objective`s at construction time, before any `Agent` existed to `attach_to()`. This one builds
+them lazily inside `assign_missions()` instead, where the agents are available — one `Objective`
+per agent with a configured goal, same fixed goal every tick. Just enough to drive the demo
+below; not meant as a general-purpose replacement.
 
 ### `demo_one_shot.py`
 First working end-to-end run: `python -m pibt.demo_one_shot`. Wires
-`WorldEngine(grid, PIBTPlanner(), FixedGoalDispatcher(goals))` — the mission side is
-one-shot fixed goals, not `mrta` — and steps the engine until every agent reaches its goal or
-`MAX_STEPS` is hit. Three agents cross through the grid's center, so priority inheritance is
-exercised, not just three independent straight lines.
+`WorldEngine(grid, PIBTPlanner(), OneShotGoalDispatcher(goals))` — the mission side is one-shot
+fixed goals, not `mrta` — and steps the engine until every agent reaches its goal or `MAX_STEPS`
+is hit. Three agents cross through the grid's center, so priority inheritance is exercised, not
+just three independent straight lines.

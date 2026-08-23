@@ -44,7 +44,8 @@ are `sim_many_pibt.py`, `sim_many_lacam.py` and `sim_many_pibt_plus.py` (importe
 `PathPlanner` from `algo/` by name) — all five raise `ImportError` at the top-level import, see
 `TODO.md`. `pibt/demo_one_shot.py` is the first thing in the repo that runs a full tick end to
 end again: `python -m pibt.demo_one_shot` wires a `Grid2D`, a few `Agent`s, `PIBTPlanner` and
-`FixedGoalDispatcher` (one-shot fixed goals, not `mrta`) and steps the engine to convergence.
+`pibt`'s own `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — `core` dropped its own
+`FixedGoalDispatcher`, see `core/AGENT.md`) and steps the engine to convergence.
 
 There is currently **no test suite either**, and no working de-facto regression check beyond that
 one demo script. `core/`, `mrta/` and `pibt/` all still import cleanly and their own internals can

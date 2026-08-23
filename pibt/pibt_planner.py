@@ -11,7 +11,8 @@ goal/priority bookkeeping plus one unconstrained call into the shared
 core.
 
 Goals and base priorities are read from the tick's AssignmentManifest
-(passed to plan()), never set by external mutation. The planner is
+(passed to plan()) — one Objective per agent, each already attach_to()'d
+to the Agent it is for — never set by external mutation. The planner is
 stateless about allocation but keeps its own navigation state across
 ticks (dynamic priority drift, reservations).
 
@@ -20,11 +21,8 @@ goal_reached_policy the caller chooses at construction — see
 GoalReachedPolicy — because only the caller knows whether goals ever
 move again.
 
-Usage:
-    pibt = PIBTPlanner()
-    intent = AssignmentManifest(goals={0: Coordinates2D(9, 9)}, priorities={0: 5.0})
-    engine = WorldEngine(grid, planner=pibt, orchestrator=FixedGoalDispatcher(intent.goals, intent.priorities))
-    engine.register_agent(Agent(0, Coordinates2D(0, 0)))
+Usage: see pibt/demo_one_shot.py, which wires PIBTPlanner behind a
+one-shot MissionOrchestrator (goals fixed for the whole run).
 
 plan() returns a StepOutcome DTO carrying next positions plus PIBT
 diagnostics (priority order, moves, priority inheritances).
@@ -69,7 +67,7 @@ class GoalReachedPolicy(Enum):
     PERMANENT
         The demotion is a one-way write, never undone — the historical
         behaviour, before the demotion became reversible. Under a
-        *static* goal regime (``FixedGoalDispatcher``, goals fixed for
+        *static* goal regime (``OneShotGoalDispatcher``, goals fixed for
         the run) this is measurably the better heuristic: on a 5x5 grid, 30
         seeds, static goals, it matches TRANSIENT up to 0.20 occupancy
         and pulls ahead by up to +0.17 success rate at maximum
@@ -122,14 +120,24 @@ class PIBTPlanner(PathPlanner):
         business priority is strictly different from the previous tick —
         never otherwise, to preserve the dynamic priority drift.
         """
-        self.goals = {a: intent.goals.get(a.agent_id, a.position) for a in agents}
+        # intent.goals is a list of Objectives, each attach_to()'d to the one
+        # Agent it is for — flatten to agent_id -> Coordinates2D once, the
+        # shape the rest of this planner (unchanged since before Objective)
+        # already works with. An Objective without an assignee names no
+        # agent and is skipped.
+        goal_by_agent_id = {
+            objective.assignee.agent_id: objective.position
+            for objective in intent.goals
+            if objective.assignee is not None
+        }
+        self.goals = {a: goal_by_agent_id.get(a.agent_id, a.position) for a in agents}
 
         for agent in agents:
             aid = agent.agent_id
             prio = intent.priorities.get(aid)
             if prio is None:
                 continue
-            key = (intent.goals.get(aid), prio)
+            key = (goal_by_agent_id.get(aid), prio)
             if self._last_intent.get(aid) != key:
                 self._priorities.set_base(agent, prio)
                 # A freshly seeded base wins over any pending restore.

@@ -2,8 +2,10 @@
 
 "One-shot" means every agent gets a single fixed goal for the whole run —
 no rotating tasks, no mrta — so the mission side is the trivial
-``FixedGoalDispatcher`` rather than a ``TaskDrivenOrchestrator``. This is
-the smallest scenario that exercises the full tick
+``OneShotGoalDispatcher`` (local to this package — core's own
+``FixedGoalDispatcher`` was dropped in 4e0c51f, see
+``one_shot_dispatcher.py``) rather than a ``TaskDrivenOrchestrator``.
+This is the smallest scenario that exercises the full tick
 (assign missions -> plan -> move) with a real PathPlanner plugged in.
 
 Three agents cross through the center of the grid, forcing PIBT's
@@ -25,8 +27,9 @@ Run with:
 
 from __future__ import annotations
 
-from core import Agent, Coordinates2D, FixedGoalDispatcher, Grid2D, WorldEngine
+from core import Agent, Coordinates2D, Grid2D, WorldEngine
 
+from .one_shot_dispatcher import OneShotGoalDispatcher
 from .pibt_planner import GoalReachedPolicy, PIBTPlanner
 
 GRID_SIZE = 5
@@ -45,7 +48,7 @@ SCENARIO: dict[int, tuple[Coordinates2D, Coordinates2D]] = {
 def build_engine() -> WorldEngine:
     grid = Grid2D(GRID_SIZE, GRID_SIZE)
     goals = {agent_id: goal for agent_id, (_, goal) in SCENARIO.items()}
-    dispatcher = FixedGoalDispatcher(goals)
+    dispatcher = OneShotGoalDispatcher(goals)
     planner = PIBTPlanner(goal_reached_policy=GoalReachedPolicy.PERMANENT)
     engine = WorldEngine(grid, planner, dispatcher)
 
