@@ -1,6 +1,6 @@
 @startuml class_diag_simplified
 
-title Simulation — Simplified class diagram
+title Simulation — Simplified engine class diagram
 
 skinparam classAttributeIconSize 0
 skinparam classFontSize 13
@@ -22,6 +22,13 @@ package "core" #EAF4FF {
             + __add__(other: Coordinates2D) : Coordinates2D
         }
 
+        enum Orientation {
+            NORTH
+            EAST
+            SOUTH
+            WEST
+        }
+
         abstract class WorldEntity {
             + entity_id       : int
             + position        : Coordinates2D
@@ -34,8 +41,15 @@ package "core" #EAF4FF {
         class Agent {
             + agent_id    : int
             + steps_taken : int
+            + orientation : Orientation
             --
             + move_to(new_position: Coordinates2D) : void
+            + rotate_to(new_orientation: Orientation) : void
+        }
+
+        class Objective {
+            --
+            + attach_to(agent: Agent) : void
         }
 
     }
@@ -54,11 +68,16 @@ package "core" #EAF4FF {
     }
 
     package "engine" {
+        class AssignmentManifest {
+            + goals      : list[Objective]
+            + priorities : dict[int, float]
+        }
+
         class WorldEngine {
             + grid         : Grid2D
             + agents       : list[Agent]
-            + coordinator  : PathPlanner
-            + dispatcher   : MissionOrchestrator | None
+            + planner      : PathPlanner
+            + orchestrator : MissionOrchestrator | None
             + current_step : int
             --
             + register_agent(agent: Agent) : void
@@ -76,55 +95,18 @@ package "core" #EAF4FF {
     }
 }
 
-package "mrta" #FFF0F5 {
-
-    enum MissionState {
-        PENDING
-        ASSIGNED
-        DONE
-        FAILED
-    }
-
-    class Mission {
-        + task_id  : int
-        + target   : Coordinates2D
-        + priority : float
-        + state    : MissionState
-        + assignee : Agent | None
-    }
-
-    abstract class MissionSource {
-        + fetch_new_missions(current_step: int) : list[Mission]
-    }
-
-    abstract class AssignmentStrategy {
-        + match_missions_to_units(pending: list[Mission], free: list[Agent], grid: Grid2D) : dict[Mission, Agent]
-    }
-
-    class TaskDrivenOrchestrator {
-        + source    : MissionSource
-        + allocator : AssignmentStrategy
-        + tasks     : list[Mission]
-        --
-        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
-    }
-}
-
 ' ── Simplified High-Level Relations ─────────────────────────────
 
 WorldEntity <|-- Agent
+WorldEntity <|-- Objective
 WorldEntity *-- Coordinates2D
+Agent *-- Orientation
+Objective --> Agent : assignee
+AssignmentManifest o-- Objective : goals
 Grid2D o-- WorldEntity
 WorldEngine *-- Grid2D
 WorldEngine *-- Agent
 WorldEngine *-- PathPlanner
 WorldEngine *-- MissionOrchestrator
-
-Mission *-- MissionState
-
-MissionOrchestrator <|-- TaskDrivenOrchestrator
-TaskDrivenOrchestrator o-- MissionSource
-TaskDrivenOrchestrator o-- AssignmentStrategy
-TaskDrivenOrchestrator *-- Mission
 
 @enduml
