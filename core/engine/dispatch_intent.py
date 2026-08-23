@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from ..entities.position import Coordinates2D
+from ..entities.objective import Objective
 
 
 @dataclass(frozen=True)
@@ -11,13 +11,14 @@ class AssignmentManifest:
     It carries the *complete* desired state every tick (not deltas), so
     the planner never has to remember allocation across ticks:
 
-    - ``goals``      : agent_id -> target Coordinates2D;
+    - ``goals``      : every Objective wanted this tick, each already
+      ``attach_to()``'d to the one Agent allowed to complete it;
     - ``priorities`` : agent_id -> allocation priority (float), optional
       per agent — a planner without priorities simply ignores it.
 
-    Being frozen and agent_id-keyed, one manifest is an auditable record of
-    exactly what allocation asked for, before the planner alters anything.
+    Being frozen, one manifest is an auditable record of exactly what
+    allocation asked for, before the planner alters anything.
     """
 
-    goals:      dict[int, Coordinates2D] = field(default_factory=dict)
-    priorities: dict[int, float]         = field(default_factory=dict)
+    goals:      list[Objective]  = field(default_factory=list)
+    priorities: dict[int, float] = field(default_factory=dict)

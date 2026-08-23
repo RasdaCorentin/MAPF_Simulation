@@ -23,7 +23,7 @@ direction, the rules and the invariants. Everything about a specific class lives
 
 | Guide | Covers |
 |---|---|
-| [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Agent`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
+| [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
 | [`mrta/AGENT.md`](mrta/AGENT.md) | `Mission` lifecycle, mission sources, `TaskDrivenOrchestrator`, eligibility, the watchdog, domain vocabulary |
 | [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
