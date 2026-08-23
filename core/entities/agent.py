@@ -1,4 +1,5 @@
 from .entity import WorldEntity
+from .orientation import Orientation
 from .position import Coordinates2D
 
 
@@ -6,6 +7,7 @@ class Agent(WorldEntity):
     def __init__(self, agent_id: int, position: Coordinates2D) -> None:
         super().__init__(entity_id=agent_id, position=position, blocks_movement=True)
         self.steps_taken = 0
+        self.orientation = Orientation.NORTH
 
     @property
     def agent_id(self) -> int:
@@ -14,6 +16,9 @@ class Agent(WorldEntity):
     def move_to(self, new_position: Coordinates2D) -> None:
         self.position = new_position
         self.steps_taken += 1
+
+    def rotate_to(self, new_orientation: Orientation) -> None:
+        self.orientation = new_orientation
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Agent):

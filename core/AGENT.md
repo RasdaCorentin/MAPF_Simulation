@@ -50,19 +50,41 @@ multi-cell entity means reintroducing both pieces together.
 
 ---
 
+### `Orientation` — `core/entities/orientation.py`
+```python
+class Orientation(Enum):
+    NORTH = "N"
+    EAST  = "E"
+    SOUTH = "S"
+    WEST  = "W"
+```
+Cardinal heading. Exists for a future League-of-Robot-Runners-style export (PlanViz reads a
+per-agent heading and discrete `R`/`F`/`W` actions per tick) — see the note on `Agent` below.
+
+---
+
 ### `Agent` — `core/entities/agent.py`
 ```python
 class Agent(WorldEntity):
     agent_id:    int        # alias of entity_id
     steps_taken: int
+    orientation: Orientation  # defaults to Orientation.NORTH at construction
     blocks_movement = True  # (passed to super().__init__)
-    def move_to(new_position: Coordinates2D)   # updates position + steps_taken
-    def __eq__ / __hash__                      # based on agent_id — hashable, usable as a dict key
+    def move_to(new_position: Coordinates2D)     # updates position + steps_taken
+    def rotate_to(new_orientation: Orientation)   # updates orientation only — not a step
+    def __eq__ / __hash__                        # based on agent_id — hashable, usable as a dict key
 ```
 `agent_id` is immutable -> stable hash. Meant to be used as a dict key wherever a planner
 tracks per-agent state — goals, priorities, reservations; PIBT did exactly this before `algo/`
 was removed (see `TODO.md`).
 Constructor: `Agent(agent_id, position)` — no strategy of its own, movement is always delegated to the `PathPlanner`.
+
+⚠ **No `PathPlanner` sets `orientation` today.** `WorldEngine.advance_time_step()` applies it from
+`StepOutcome.orientations` when a planner populates that dict (see `StepOutcome` below), but no
+planner does yet, so every `Agent` keeps its default heading in practice. There is also no
+rotate-XOR-move constraint: nothing stops a planner from changing both `position` and
+`orientation` for the same agent in the same tick — LoRR semantics (an agent does one thing per
+tick) are not enforced, `_validate_plan()` does not check for it.
 
 ---
 
@@ -93,13 +115,14 @@ de-duplicate.
 ```python
 @dataclass(frozen=True)
 class StepOutcome:
-    positions:   dict[int, Coordinates2D]   # agent_id -> next Coordinates2D (universal contract)
-    moves:       dict[int, tuple]           # agent_id -> (from, to)          (universal contract)
-    order:       list[int]                  # agent_ids in priority order        (optional diagnostic)
-    inheritance: list[tuple]                # (pusher_id, pushed_id)             (optional diagnostic)
-    priorities:  dict[int, float]           # agent_id -> priority               (optional diagnostic)
+    positions:    dict[int, Coordinates2D]   # agent_id -> next Coordinates2D (universal contract)
+    moves:        dict[int, tuple]           # agent_id -> (from, to)          (universal contract)
+    order:        list[int]                  # agent_ids in priority order        (optional diagnostic)
+    inheritance:  list[tuple]                # (pusher_id, pushed_id)             (optional diagnostic)
+    priorities:   dict[int, float]           # agent_id -> priority               (optional diagnostic)
+    orientations: dict[int, Orientation]     # agent_id -> next Orientation       (optional, unset by every planner today)
 ```
-DTO returned by every `PathPlanner.plan()` call. `positions`/`moves` are the contract every planner fills; the rest are diagnostics a planner may leave empty if it has nothing to report there — PIBT was the one implementation that populated all three, before `algo/` was removed (see `TODO.md`). Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
+DTO returned by every `PathPlanner.plan()` call. `positions`/`moves` are the contract every planner fills; the rest are diagnostics a planner may leave empty if it has nothing to report there — PIBT was the one implementation that populated all three, before `algo/` was removed (see `TODO.md`). `orientations` follows the same sparse convention as `positions`: an agent absent from it keeps its current heading. Keys are `agent_id` integers so it can cross package boundaries without exposing `Agent` objects.
 
 **Frozen**, like every value crossing a package boundary in this project: a caller can hold onto
 the object `WorldEngine.advance_time_step()` returned without the engine being able to rewrite it
@@ -159,7 +182,7 @@ class WorldEngine:
     __init__(grid, planner, orchestrator=None)
     register_agent(agent)              # place + append
     spawn_static_obstacle(entity)      # append + place immediately if appear_at <= current_step
-    advance_time_step() -> StepOutcome # spawn -> assign missions -> plan -> validate -> lift -> place
+    advance_time_step() -> StepOutcome # spawn -> assign missions -> plan -> validate -> lift -> place -> rotate
     _validate_plan(result)             # rejects an inapplicable plan BEFORE any mutation
 ```
 
@@ -174,6 +197,8 @@ against the already-incremented step (an entity with `appear_at=1` spawns on the
 # 4. Validate: self._validate_plan(result) — raises before the grid is touched
 # 5. Lift:  grid.unindex(agent) for every agent whose target differs from its position
 # 6. Place: agent.move_to(target) then grid.place(agent)
+# 7. Rotate: agent.rotate_to(orientation) for every agent in result.orientations — no lift/place
+#    needed, orientation is not grid-indexed
 #    Return result — a caller reads diagnostics from it without importing the planner's package
 ```
 The `assign missions → plan` order is owned by `advance_time_step()`, so a caller cannot plan on stale goals. Movement is applied by `advance_time_step()` itself (lift-then-place) to handle simultaneous swaps — `agent.move_to` is never called outside this transaction, so `Agent.position` and the grid index stay in sync.
