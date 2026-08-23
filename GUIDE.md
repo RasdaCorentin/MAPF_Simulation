@@ -15,10 +15,10 @@ everyone moves so that no two agents collide. `core/` declares that `Coordinator
 interface but, as of this refactor, provides no implementation of it — see
 [`TODO.md`](TODO.md) for why and what used to be there (PIBT, LaCAM, PIBT+, random walk).
 
-On top of the movement layer sits an optional **task-allocation** layer (`mrta/`):
-tasks appear over time, get matched to free agents, and their targets are pushed to the
-coordinator as goals. Same story for `Allocator`: the interface exists, nothing implements
-it right now.
+There used to be an optional **task-allocation** layer on top of the movement layer
+(`mrta/`): tasks appearing over time, matched to free agents, their targets pushed to the
+coordinator as goals. It was removed — task allocation is out of scope for this repository
+now; see [`TODO.md`](TODO.md).
 
 ---
 
@@ -30,9 +30,9 @@ python -m venv .venv && source .venv/bin/activate
 ```
 
 Nothing currently runs end to end — `main.py` and every `sim_many_*.py` sweep are broken,
-see [`TODO.md`](TODO.md) for the full picture. `core/` and `mrta/` still import cleanly and
-can be exercised directly from a Python shell (construct a `Grid`, an `Agent`, a `Task` by
-hand); there is just no `Coordinator` to run a full tick with.
+see [`TODO.md`](TODO.md) for the full picture. `core/` still imports cleanly and can be
+exercised directly from a Python shell (construct a `Grid`, an `Agent` by hand); there is
+just no `Coordinator` to run a full tick with.
 
 No runtime dependencies are needed (`requirements.txt` is currently empty).
 
@@ -40,25 +40,20 @@ No runtime dependencies are needed (`requirements.txt` is currently empty).
 
 ## How it fits together
 
-Two packages left, one-way dependency:
-
-```
-core ◄─── mrta
-```
+One package left, no dependents:
 
 - **`core/`** — the pure engine, no rendering, no algorithm. Holds the world:
   `Position`, `WorldEntity`, `Agent`, `Grid`, the `Simulation` loop, and the
   `Coordinator` interface plus its `PlanResult` return type.
-- **`mrta/`** — task allocation: `Task`, `TaskSource`, `Allocator`, and `FleetManager`,
-  which hands goals to the coordinator. Depends only on `core`.
 
-There used to be a third package, `algo/` (the algorithms: PIBT, LaCAM, PIBT+, random walk,
-the allocators), and a scripting layer above both to wire a scenario. Both were removed
-deliberately — see [`TODO.md`](TODO.md) for why and what's needed to bring either back.
+There used to be two other packages: `algo/` (the algorithms: PIBT, LaCAM, PIBT+, random
+walk, the allocators) and `mrta/` (task allocation: `Task`, `TaskSource`, `Allocator`,
+`FleetManager`, which handed goals to the coordinator), plus a scripting layer above both
+to wire a scenario. All were removed deliberately — see [`TODO.md`](TODO.md) for why and
+what's needed to bring any of it back.
 
 The key handshake: `Simulation.step()` asks the coordinator to `plan()` and gets back a
-`PlanResult` (next positions + diagnostics). `FleetManager` and the coordinator share
-the *same* object, so allocation and movement stay in sync.
+`PlanResult` (next positions + diagnostics).
 
 For the visual overview, see the class diagram:
 
@@ -71,8 +66,6 @@ For the visual overview, see the class diagram:
 | I want to…                                   | Go to…                                          |
 |:---------------------------------------------|:------------------------------------------------|
 | Add a coordinator (none exist right now)     | subclass `Coordinator` from `core`, see "Extending it" below |
-| Add an allocator (none exist right now)      | subclass `Allocator` from `mrta`, see "Extending it" below |
-| Change the task lifecycle / dispatch loop    | `mrta/fleet_manager.py`                         |
 | Change the grid, entities, or the step loop  | `core/`                                          |
 | Update the class diagram                     | `diagrammes/Class_Diagram/class_diag_commented.puml` (+ `plantuml`) |
 
@@ -96,10 +89,6 @@ class MyAlgo(Coordinator):
 Plug it in with `Simulation(grid, coordinator=MyAlgo())`. There is currently no reference
 implementation left in the repo to copy the shape of — `algo/` (PIBT, LaCAM, PIBT+, random
 walk) was removed; see [`TODO.md`](TODO.md).
-
-**A new allocator** — subclass `Allocator` and implement `allocate(pending, free, grid)`.
-Same situation: no concrete allocator (`EasiestAllocator`, `RandomAllocator`,
-`KDTreeGreedyAllocator`) is left in the repo to show the shape.
 
 ---
 

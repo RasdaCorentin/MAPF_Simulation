@@ -5,8 +5,9 @@
 > repeated here. Read it first.
 
 `core/` is the pure simulation engine: entities, the grid they live on, and the tick that
-moves them. It imports **nothing** from `mrta/` — the dependency is strictly one-directional,
-which is what lets an algorithm or an allocator be swapped without the engine noticing.
+moves them. It has no dependents in the repository right now — `mrta/` (task allocation) was
+removed; the `PathPlanner`/`MissionOrchestrator` seams still exist for whatever plugs in next
+to do so without the engine noticing.
 
 ### `Coordinates2D` — `core/entities/position.py`
 ```python
@@ -19,8 +20,8 @@ class Coordinates2D:
 def manhattan_distance(a: Coordinates2D, b: Coordinates2D) -> int   # module-level helper
 ```
 Hashable (frozen). Used as a dict key in `Grid2D._agents` and `Grid2D._static`.
-`manhattan_distance()` is the one Manhattan-distance helper for the whole codebase — `mrta`'s
-watchdog calls it directly instead of each caller carrying its own copy.
+`manhattan_distance()` is the one Manhattan-distance helper for the whole codebase — kept here so
+any future caller (a planner, an allocator) uses the same one instead of carrying its own copy.
 
 ---
 
@@ -155,7 +156,7 @@ class AssignmentManifest:
     goals:      list[Objective]   # every Objective wanted this tick, each attach_to()'d already
     priorities: dict[int, float]  # agent_id -> allocation priority (optional per agent)
 ```
-Immutable carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `MissionOrchestrator`, consumed by `PathPlanner.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the planner, which keeps allocation (`mrta`) and navigation (whatever implements `PathPlanner`) decoupled and gives an auditable per-tick record. `priorities` stays agent_id-keyed; a planner recovers "who wants what" by reading each `Objective.assignee.agent_id`, not by indexing `goals` — there is no dict-style lookup any more.
+Immutable carrier of the **absolute** allocation state for one tick (complete state, not deltas). Produced by a `MissionOrchestrator`, consumed by `PathPlanner.plan()`. It is the *only* channel for goals/priorities — there is no external mutation of the planner, which keeps allocation and navigation (whatever implements each seam) decoupled and gives an auditable per-tick record. `priorities` stays agent_id-keyed; a planner recovers "who wants what" by reading each `Objective.assignee.agent_id`, not by indexing `goals` — there is no dict-style lookup any more.
 
 ---
 
@@ -175,7 +176,7 @@ class MissionOrchestrator(ABC):
     @abstractmethod
     def assign_missions(self, agents: list[Agent], grid: Grid2D, step: int) -> AssignmentManifest: ...
 ```
-Pre-planning hook: `WorldEngine.advance_time_step()` runs the orchestrator (if attached) **before** `plan()` and passes the returned manifest to it, so goals are never stale by construction. It never touches the planner. Living in `core` lets `WorldEngine` own the tick order (assign missions → plan) **without importing `mrta`** — the same dependency-inversion seam as `PathPlanner`. `TaskDrivenOrchestrator` (`mrta`) is the only concrete orchestrator; **core ships none of its own** — `FixedGoalDispatcher` (`core/engine/static_dispatcher.py`) used to fill that role but was removed once `AssignmentManifest.goals` became `list[Objective]`: building an `Objective` needs a live `Agent` to `attach_to()`, which a fixed-at-construction dispatcher does not have until `assign_missions()` runs, so it could not be trivially adapted.
+Pre-planning hook: `WorldEngine.advance_time_step()` runs the orchestrator (if attached) **before** `plan()` and passes the returned manifest to it, so goals are never stale by construction. It never touches the planner. Living in `core` lets `WorldEngine` own the tick order (assign missions → plan) without the engine importing whatever implements this seam. **There is no concrete `MissionOrchestrator` in the repository right now** — `TaskDrivenOrchestrator` (`mrta`) was the one implementation, removed along with the rest of `mrta/` (task allocation, out of scope for this repo now); `FixedGoalDispatcher` (`core/engine/static_dispatcher.py`) filled the role before that, but was removed once `AssignmentManifest.goals` became `list[Objective]`: building an `Objective` needs a live `Agent` to `attach_to()`, which a fixed-at-construction dispatcher does not have until `assign_missions()` runs, so it could not be trivially adapted.
 
 ---
 
