@@ -3,6 +3,5 @@
 from .position import Coordinates2D, manhattan_distance
 from .entity import WorldEntity
 from .agent import Agent
-from .zone import NamedRegion
 
-__all__ = ["Coordinates2D", "manhattan_distance", "WorldEntity", "Agent", "NamedRegion"]
+__all__ = ["Coordinates2D", "manhattan_distance", "WorldEntity", "Agent"]
