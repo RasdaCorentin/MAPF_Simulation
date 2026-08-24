@@ -1,0 +1,113 @@
+' =====================================================================
+'  Annotated class diagram — self-contained (single file, no !include).
+'
+'  Scope: the export/ package — concrete Exporter implementations.
+'  The Exporter seam itself moved into core/engine/ (see
+'  Class_Diagram/class_diag_commented.puml) once WorldEngine grew its
+'  own optional `exporter` field — WorldEngine.advance_time_step()
+'  calls exporter.record() directly, no wrapper class needed. export/
+'  supplies the concrete side only, the same shape as pibt/ supplying
+'  a concrete PathPlanner: depends on core/, core/ does not know it
+'  exists. core/ classes referenced here (WorldEngine, Exporter, Agent,
+'  Grid2D, StepOutcome) are shown as stubs; see
+'  Class_Diagram/class_diag_commented.puml for their real detail.
+'
+'  Regenerate with:
+'      plantuml diagrammes/Class_Diagram/Export/class_diag_commented.puml
+'
+'  Output:
+'      export_class_diagram_commente.png
+' =====================================================================
+
+@startuml export_class_diagram_commente
+title Simulation — export/ class diagram (annotated: context & design patterns)
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam ArrowColor #333333
+skinparam ClassBorderColor #4A90D9
+skinparam ClassBackgroundColor #EAF4FF
+skinparam ClassHeaderBackgroundColor #4A90D9
+skinparam ClassHeaderFontColor #FFFFFF
+skinparam PackageBorderColor #888888
+skinparam PackageBackgroundColor #F8F8F8
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+skinparam linetype ortho
+
+' =====================================================================
+'  core — stubs only; this package's real home is Class_Diagram/
+' =====================================================================
+package "core (stubs)" #EAF4FF {
+    class WorldEngine
+    abstract class Exporter
+    class Agent
+    class Grid2D
+    class StepOutcome
+}
+
+' =====================================================================
+'  export — concrete Exporters; no seam of its own, core owns that now
+' =====================================================================
+package "export" #FFF3E0 {
+
+    class PlanVizExporter {
+        - _history       : dict[int, list[tuple]]
+        - _grid          : Grid2D | None
+        - _ticks_per_action : int = 1
+        --
+        + record(step, agents, grid, outcome) : void
+        + flush() : void
+    }
+    note bottom of PlanVizExporter
+      **The concrete reason this package exists**
+      Accumulates (position, orientation) per agent per tick, one
+      baseline entry before the first real tick so the very first
+      recorded heading can be treated as "where the agent started"
+      rather than an invented rotation from Agent's default NORTH —
+      see the worked trace in this session's transcript.
+
+      flush() run-length-encodes the deltas into the Start-Kit's own
+      action vocabulary (Simulator.cpp): F (forward), R (rotate
+      clockwise), C (rotate counter-clockwise), W (wait) — a same-tick
+      position+orientation change (PIBTPlanner's orientation=True
+      never enforces rotate-XOR-move) becomes N clockwise-step R/C
+      actions followed by one F, N computed from the shortest turn
+      between the two Orientations. Row/col are swapped versus this
+      project's (x, y): the segment header is (tick, y, x, heading, 0),
+      not (tick, x, y, heading, 0) — matches the Start-Kit's own
+      row-major (location = row*cols+col) convention, which happens to
+      agree with core's own (x East+, y South+) axes once transposed.
+      _ticks_per_action defaults to 1 (one PlanViz tick per WorldEngine
+      tick) rather than modeling the Start-Kit's agentCounter (~10
+      execution ticks per Forward/Rotate) — a deliberate simplification,
+      not an oversight; raising it replays every tick N times for more
+      realistic pacing in PlanViz's own player.
+
+      Writes the .map + .json pair PlanViz reads. The only concrete
+      Exporter today — CsvExporter, SqlExporter are documented future
+      siblings, not yet written.
+    end note
+}
+
+PlanVizExporter --|> Exporter
+
+PlanVizExporter ..> Agent : «reads»
+PlanVizExporter ..> Grid2D : «reads»
+PlanVizExporter ..> StepOutcome : «reads»
+
+' =====================================================================
+'  Page-level legend — the 30-second read.
+' =====================================================================
+legend bottom left
+  **What this diagram covers**
+  export/: concrete Exporters plugged into WorldEngine.exporter. A
+  caller wanting a logged run constructs
+  WorldEngine(grid, planner, exporter=PlanVizExporter(...)) directly —
+  no decorator class, WorldEngine already has the slot. Depends only
+  on core/ — the same one-directional shape as pibt/ — and knows
+  nothing about PIBT or any other concrete PathPlanner.
+  There is currently no code behind any of this — see TODO.md.
+end legend
+
+@enduml

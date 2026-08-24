@@ -78,11 +78,13 @@ package "core" #EAF4FF {
             + agents       : list[Agent]
             + planner      : PathPlanner
             + orchestrator : MissionOrchestrator | None
+            + exporter     : Exporter | None
             + current_step : int
             --
             + register_agent(agent: Agent) : void
             + spawn_static_obstacle(entity: WorldEntity) : void
             + advance_time_step() : StepOutcome
+            + close() : void
         }
 
         abstract class PathPlanner {
@@ -91,6 +93,11 @@ package "core" #EAF4FF {
 
         abstract class MissionOrchestrator {
             + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
+        }
+
+        abstract class Exporter {
+            + record(step: int, agents: list[Agent], grid: Grid2D, outcome: StepOutcome) : void
+            + flush() : void
         }
     }
 }
@@ -108,5 +115,6 @@ WorldEngine *-- Grid2D
 WorldEngine *-- Agent
 WorldEngine *-- PathPlanner
 WorldEngine *-- MissionOrchestrator
+WorldEngine *-- Exporter
 
 @enduml

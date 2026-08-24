@@ -117,6 +117,7 @@ break it. When in doubt, the class diagram arbitrates.
   | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
   | `diagrammes/Class_Diagram/Pibt/class_diag_commented.puml` | the `pibt/` package | `plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml` |
+  | `diagrammes/Class_Diagram/Export/class_diag_commented.puml` | the (not yet implemented) `export/` package | `plantuml diagrammes/Class_Diagram/Export/class_diag_commented.puml` |
 
   Never edit the generated PNGs. There is no sequence diagram: `sequence_tick.puml` was dropped —
   the tick order it showed is stated on `WorldEngine` in the class diagram and in

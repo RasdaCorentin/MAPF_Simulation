@@ -3,9 +3,10 @@
 '
 '  Engine-only: this is the whole repository now. The mrta package (task
 '  allocation) was removed outright, not just left off this diagram. What
-'  remains is the world and the tick that advances it, plus the two
-'  abstract seams (PathPlanner, MissionOrchestrator) that let a future
-'  package plug in without core knowing it exists.
+'  remains is the world and the tick that advances it, plus three
+'  abstract seams (PathPlanner, MissionOrchestrator, Exporter) that let
+'  a package plug in without core knowing it exists — pibt/ already does,
+'  for PathPlanner; see Class_Diagram/Pibt/ and Class_Diagram/Export/.
 '
 '  Regenerate with:
 '      plantuml diagrammes/Class_Diagram/class_diag_commented.puml
@@ -150,6 +151,21 @@ package "core" #EAF4FF {
           either side and the other is unaffected.
         end note
 
+        abstract class Exporter <<Strategy>> {
+            + {abstract} record(step: int, agents: list[Agent], grid: Grid2D, outcome: StepOutcome) : void
+            + {abstract} flush() : void
+        }
+        note bottom of Exporter
+          **A third, silent-by-default seam**
+          Unlike PathPlanner and MissionOrchestrator, WorldEngine works
+          without one — exporter defaults to None, and advance_time_step()
+          simply skips the call when it is unset. record() runs once per
+          tick, after the move phase; flush() runs once, whenever the
+          caller decides the run is over (WorldEngine.close()). Concrete
+          exporters (e.g. one exporting a run for PlanViz) live outside
+          core, one dependency level up — see Class_Diagram/Export/.
+        end note
+
         class WorldEngine {
             + grid         : Grid2D
             + agents       : list[Agent]
@@ -158,22 +174,28 @@ package "core" #EAF4FF {
             + current_step : int
             + planner      : PathPlanner
             + orchestrator : MissionOrchestrator | None
+            + exporter     : Exporter | None
             + last_intent  : AssignmentManifest
             --
             + register_agent(agent: Agent) : void
             + spawn_static_obstacle(entity: WorldEntity) : void
             + advance_time_step() : StepOutcome
+            + close() : void
         }
         note top of WorldEngine
           **The engine — one tick of the world**
-          Every step runs the same three phases, in this order:
+          Every step runs the same phases, in this order:
             1. **assign missions** — ask the MissionOrchestrator where each agent goes
             2. **plan**            — ask the PathPlanner how to move them there
             3. **move**            — apply the plan to the grid
+            4. **export** (optional) — hand the tick's StepOutcome to
+               exporter.record(), if one is attached
           Because the engine owns that order, goals can never be stale
           and a caller cannot plan before assigning missions. All agents
           move inside one transaction, so two of them can swap cells
-          without either seeing the grid half-updated.
+          without either seeing the grid half-updated. close() calls
+          exporter.flush() if attached — call it once, after the run
+          ends, not per tick.
         end note
     }
 }
@@ -235,10 +257,12 @@ WorldEngine "1" o-- "1" Grid2D        : grid
 WorldEngine "1" *-- "0..*" WorldEntity    : entities
 WorldEngine "1" o-- "1" PathPlanner         : planner
 WorldEngine "1" o-- "0..1" MissionOrchestrator : orchestrator (optional)
+WorldEngine "1" o-- "0..1" Exporter          : exporter (optional)
 WorldEngine "1" *-- "1" AssignmentManifest  : last_intent
 PathPlanner ..> StepOutcome : «returns»
 PathPlanner ..> AssignmentManifest : «reads»
 MissionOrchestrator ..> AssignmentManifest : «returns»
+Exporter ..> StepOutcome : «reads»
 
 ' =====================================================================
 '  Page-level legend — the 30-second read.
@@ -248,10 +272,11 @@ legend bottom left
   The pure engine: the world (grid, agents, entities) and the tick that
   advances it. Task allocation — who does which job — used to live in
   the mrta package, removed from the repository; the MissionOrchestrator
-  seam through which it plugged in is all that remains.
-  There is currently no concrete PathPlanner or MissionOrchestrator
-  implementation in the repository, and no supported way to drive or
-  watch a run end to end — see TODO.md.
+  seam through which it plugged in is all that remains, with no concrete
+  implementation today. pibt/PIBTPlanner is a concrete PathPlanner —
+  see Class_Diagram/Pibt/ — the first thing that runs a full tick end
+  to end (python -m pibt.demo_one_shot). Exporter has no concrete
+  implementation yet either — see Class_Diagram/Export/.
 end legend
 
 @enduml
