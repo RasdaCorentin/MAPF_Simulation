@@ -1,0 +1,205 @@
+' =====================================================================
+'  Annotated class diagram — self-contained (single file, no !include).
+'
+'  Scope: the pibt/ package — Priority Inheritance with Backtracking
+'  (Okumura et al., 2022), core/'s only dependent besides log/. Unlike
+'  Class_Diagram/Log/, this documents code that already exists and
+'  runs (python -m pibt.demo_one_shot) — catching the diagram up to
+'  the package, not the other way round. core/ classes it touches
+'  (PathPlanner, MissionOrchestrator, Agent, Grid2D, Coordinates2D,
+'  Orientation, StepOutcome, AssignmentManifest, Objective) are shown
+'  as stubs here; see Class_Diagram/class_diag_commented.puml for
+'  their real detail — this file does not repeat it.
+'
+'  Regenerate with:
+'      plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml
+'
+'  Output:
+'      pibt_class_diagram_commente.png
+' =====================================================================
+
+@startuml pibt_class_diagram_commente
+title Simulation — pibt/ class diagram (annotated: context & design patterns)
+
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam ArrowColor #333333
+skinparam ClassBorderColor #4A90D9
+skinparam ClassBackgroundColor #EAF4FF
+skinparam ClassHeaderBackgroundColor #4A90D9
+skinparam ClassHeaderFontColor #FFFFFF
+skinparam PackageBorderColor #888888
+skinparam PackageBackgroundColor #F8F8F8
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #C9B458
+skinparam linetype ortho
+
+' =====================================================================
+'  core — stubs only; this package's real home is Class_Diagram/
+' =====================================================================
+package "core (stubs)" #EAF4FF {
+    abstract class PathPlanner
+    abstract class MissionOrchestrator
+    class Agent
+    class Grid2D
+    class Coordinates2D
+    class Orientation
+    class StepOutcome
+    class AssignmentManifest
+    class Objective
+}
+
+' =====================================================================
+'  pibt — Priority Inheritance with Backtracking
+' =====================================================================
+package "pibt" #E8F5E9 {
+
+    enum GoalReachedPolicy {
+        TRANSIENT
+        PERMANENT
+    }
+    note bottom of GoalReachedPolicy
+      **Whether the goal-reached demotion survives departure**
+      An agent standing on its goal is demoted to base priority -inf
+      so it stops contesting cells it does not need. TRANSIENT (the
+      default) undoes that the instant the agent leaves its goal —
+      mandatory once goals ever move again (a rotating-goal regime).
+      PERMANENT never undoes it — measurably better when goals are
+      fixed for the whole run (OneShotGoalDispatcher). Threaded in at
+      construction because only the caller that owns the goal regime
+      knows which is safe.
+    end note
+
+    class ReservationTable {
+        - _reserved : dict[Coordinates2D, Agent]
+        --
+        + reserve(agent: Agent, pos: Coordinates2D) : void
+        + release(agent: Agent) : void
+        + get_reserving_agent(pos: Coordinates2D) : Agent | None
+        + get_reservation(agent: Agent) : Coordinates2D | None
+        + clear() : void
+    }
+
+    class PriorityManager {
+        - _base    : dict[Agent, float]
+        - _dynamic : dict[Agent, float]
+        --
+        + update(agents: list[Agent]) : void
+        + get_priority(agent: Agent) : float
+        + get_base(agent: Agent) : float
+        + set_base(agent: Agent, p: float) : void
+    }
+    note bottom of PriorityManager
+      **Base vs. dynamic, and why drift survives a rewrite**
+      Base priorities are set explicitly (construction, inheritance,
+      goal-reached demotion); dynamic priorities decay by 1 every
+      update() to prevent starvation. set_base() carries the
+      accumulated drift (dynamic - base) over rather than flattening
+      it, so an agent handed a new base does not lose waiting credit
+      it already built up.
+    end note
+
+    class "pibt_core" as PibtCore <<module>> {
+        + {static} ORIENTATION_BY_DELTA : dict[Coordinates2D, Orientation]
+        --
+        + {static} run_pibt_pass(grid, goals, priorities, reservations, order, processed=None) : tuple
+    }
+    note bottom of PibtCore
+      **Algorithm 1, extracted to be shared**
+      The recursive core, re-parameterized to read an externally-owned
+      ReservationTable/PriorityManager instead of `self` — so a future
+      constrained caller (e.g. LaCAM's low level) can pre-seed one
+      agent's reservation and let the rest cascade around it.
+      run_pibt_pass() does not clear reservations itself: the caller
+      decides what is already reserved before the pass starts.
+      ORIENTATION_BY_DELTA is the one place in the repository that
+      fixes an x/y <-> compass convention (x East, y South) — see the
+      note on PIBTPlanner.orientation below.
+    end note
+
+    class PIBTPlanner {
+        + goals : dict[Agent, Coordinates2D]
+        - _reservations        : ReservationTable
+        - _priorities          : PriorityManager
+        - _goal_reached_policy : GoalReachedPolicy
+        - _emit_orientation    : bool
+        --
+        + plan(agents: list[Agent], grid: Grid2D, intent: AssignmentManifest) : StepOutcome
+        - _apply_intent(agents: list[Agent], intent: AssignmentManifest) : void
+    }
+    note top of PIBTPlanner
+      **A thin per-tick wrapper around the shared core**
+      Goal/priority bookkeeping plus one unconstrained call into
+      run_pibt_pass(). Stateless about allocation — goals and base
+      priorities are read from AssignmentManifest.goals (a list of
+      Objectives, each already attach_to()'d to the Agent it is for)
+      every tick via _apply_intent() — but keeps its own navigation
+      state across ticks: dynamic priority drift and reservations both
+      survive from one plan() call to the next.
+      The orientation constructor flag (default False) makes plan()
+      also fill StepOutcome.orientations, one heading per moving agent
+      derived from ORIENTATION_BY_DELTA. Cosmetic only: it does not
+      feed back into candidate selection and does not enforce a
+      rotate-XOR-move constraint (see the caveat on Agent in
+      core/AGENT.md) — an agent can move and face its new direction
+      in the same tick.
+    end note
+
+    class OneShotGoalDispatcher {
+        - _goal_positions : dict[int, Coordinates2D]
+        - _priorities     : dict[int, float]
+        --
+        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
+    }
+    note bottom of OneShotGoalDispatcher
+      **Scaffolding, not core's FixedGoalDispatcher reborn**
+      core's own FixedGoalDispatcher was dropped rather than adapted
+      when AssignmentManifest.goals became list[Objective]: it built
+      its Objectives at construction time, before any Agent existed to
+      attach_to(). This one builds them lazily inside
+      assign_missions() instead, where the agents are available — the
+      same fixed goal every tick, just enough to drive
+      demo_one_shot.py. Not a general-purpose replacement.
+    end note
+}
+
+' ── Diamond convention ────────────────────────────────────────────
+' Same rule as Class_Diagram/class_diag_commented.puml: filled for an
+' immutable value or a mutable object with a single exclusive owner,
+' hollow for a shared mutable instance.
+
+PIBTPlanner --|> PathPlanner
+OneShotGoalDispatcher --|> MissionOrchestrator
+
+' Filled: PIBTPlanner creates and exclusively owns both — nothing else
+' references this particular ReservationTable/PriorityManager.
+PIBTPlanner "1" *-- "1" ReservationTable : _reservations
+PIBTPlanner "1" *-- "1" PriorityManager  : _priorities
+' Filled: GoalReachedPolicy is an immutable enum value, same rule as
+' Coordinates2D/Orientation elsewhere — sharing the instance is moot.
+PIBTPlanner "1" *-- "1" GoalReachedPolicy : _goal_reached_policy
+
+' Dependency, not ownership: run_pibt_pass reads/writes the
+' ReservationTable and PriorityManager PIBTPlanner already owns and
+' passes in — it never creates or keeps one itself.
+PIBTPlanner ..> PibtCore : «calls run_pibt_pass»
+PibtCore ..> ReservationTable : «reads/writes»
+PibtCore ..> PriorityManager : «reads/writes»
+
+PIBTPlanner ..> Orientation : «emits, if orientation=True»
+OneShotGoalDispatcher ..> Objective : «creates, attach_to()'s»
+
+' =====================================================================
+'  Page-level legend — the 30-second read.
+' =====================================================================
+legend bottom left
+  **What this diagram covers**
+  pibt/: a concrete PathPlanner (Priority Inheritance with
+  Backtracking) plus the minimal MissionOrchestrator that drives its
+  one-shot demo. Depends only on core/ — the same one-directional
+  shape as log/ — and knows nothing about any other PathPlanner.
+  This is the first thing in the repository that runs a full tick end
+  to end again: python -m pibt.demo_one_shot.
+end legend
+
+@enduml

@@ -31,6 +31,7 @@
 | `Class_Diagram/class_diag_commented.puml` | the architecture, annotated: `core` | `plantuml diagrammes/Class_Diagram/class_diag_commented.puml` |
 | `component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
 | `Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering — plain attributes, no notes | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
+| `Class_Diagram/Pibt/class_diag_commented.puml` | the `pibt/` package: `PIBTPlanner`, `ReservationTable`, `PriorityManager`, `pibt_core`, `OneShotGoalDispatcher` | `plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml` |
 
 Never edit a generated PNG. `script_perso.sh` watches a `.puml`/`.iuml` file and regenerates it
 on save, for iterating live.
