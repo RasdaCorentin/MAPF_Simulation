@@ -9,7 +9,11 @@
 '  (PathPlanner, MissionOrchestrator, Agent, Grid2D, Coordinates2D,
 '  Orientation, StepOutcome, AssignmentManifest, Objective) are shown
 '  as stubs here; see Class_Diagram/class_diag_commented.puml for
-'  their real detail — this file does not repeat it.
+'  their real detail — this file does not repeat it. One exception to
+'  "already exists and runs": LifelongGoalOrchestrator, marked
+'  <<draft>>, is a proposal for a lifelong/MRTA-style
+'  MissionOrchestrator built on PIBT — not yet implemented, see its
+'  own note.
 '
 '  Regenerate with:
 '      plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml
@@ -161,6 +165,41 @@ package "pibt" #E8F5E9 {
       same fixed goal every tick, just enough to drive
       demo_one_shot.py. Not a general-purpose replacement.
     end note
+
+    class LifelongGoalOrchestrator <<draft>> {
+        - _goal_pool     : list[Coordinates2D]
+        - _current_goal  : dict[int, Coordinates2D]
+        - _priorities    : dict[int, float]
+        --
+        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
+        - _next_goal(agent: Agent) : Coordinates2D
+    }
+    note bottom of LifelongGoalOrchestrator
+      **DRAFT — not yet implemented.** Where OneShotGoalDispatcher
+      hands out one goal per agent for the whole run,
+      _next_goal() draws the next entry from _goal_pool the instant
+      an agent is found standing on its _current_goal — the
+      "lifelong" MAPF regime (goals never stop arriving) that
+      mrta/TaskDrivenOrchestrator used to serve, minus its
+      eligibility classes, allocation strategy and stall watchdog:
+      this is goal rotation only, not task allocation. Requires
+      PIBTPlanner's GoalReachedPolicy.TRANSIENT (the default) — an
+      agent demoted to -inf on arrival must be undemoted the instant
+      it is re-tasked, or it can never contest a cell again. See the
+      TRANSIENT branch of GoalReachedPolicy's own docstring, which
+      already names this regime.
+
+      ⚠ **Deliberately no watchdog, no eligibility, no pluggable
+      allocation strategy.** _next_goal() is the only matching policy —
+      FCFS by arrival order, popped straight from _goal_pool — and
+      there is no progress check behind it: an agent whose current
+      goal turns out unreachable is parked on it forever, the exact
+      deadlock mrta/TaskDrivenOrchestrator's patience/max_attempts
+      existed to close. Accepted here because _goal_pool is assumed to
+      contain only reachable positions; revisit (bringing back some
+      form of stall detection) the day a goal source can hand out one
+      that is not.
+    end note
 }
 
 ' ── Diamond convention ────────────────────────────────────────────
@@ -170,6 +209,7 @@ package "pibt" #E8F5E9 {
 
 PIBTPlanner --|> PathPlanner
 OneShotGoalDispatcher --|> MissionOrchestrator
+LifelongGoalOrchestrator --|> MissionOrchestrator
 
 ' Filled: PIBTPlanner creates and exclusively owns both — nothing else
 ' references this particular ReservationTable/PriorityManager.
@@ -188,6 +228,7 @@ PibtCore ..> PriorityManager : «reads/writes»
 
 PIBTPlanner ..> Orientation : «emits, if orientation=True»
 OneShotGoalDispatcher ..> Objective : «creates, attach_to()'s»
+LifelongGoalOrchestrator ..> Objective : «creates, attach_to()'s»
 
 ' =====================================================================
 '  Page-level legend — the 30-second read.
@@ -200,6 +241,10 @@ legend bottom left
   shape as log/ — and knows nothing about any other PathPlanner.
   This is the first thing in the repository that runs a full tick end
   to end again: python -m pibt.demo_one_shot.
+  LifelongGoalOrchestrator (<<draft>>) sketches the other regime PIBT
+  already anticipates via GoalReachedPolicy: goals that keep arriving
+  instead of a fixed one per agent. Not yet implemented — a proposal
+  to validate before any code is written.
 end legend
 
 @enduml
