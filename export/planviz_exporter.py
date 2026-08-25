@@ -142,6 +142,11 @@ class PlanVizExporter(Exporter):
             "actionModel": "MAPF_T",
             "version": "2026 LoRR",
             "teamSize": len(self._history),
+            # PlanViz interpolates one cell's motion over agentMaxCounter
+            # ticks (plan_config.py's get_ticks_per_timestep(), default 10
+            # when this key is absent) — must match _ticks_per_action or
+            # the agent visibly moves only a fraction of a cell per action.
+            "agentMaxCounter": self._ticks_per_action,
             # The exported timeline can be longer than WorldEngine's own
             # tick count: a same-tick position+orientation change (see
             # record()) becomes an extra R/C action, one PlanViz tick

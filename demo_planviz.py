@@ -38,7 +38,11 @@ def main() -> None:
     agent = Agent(0, START)
     dispatcher = OneShotGoalDispatcher({0: GOAL})
     planner = PIBTPlanner(goal_reached_policy=GoalReachedPolicy.PERMANENT, orientation=True)
-    exporter = PlanVizExporter(str(map_path), str(plan_path))
+    # ticks_per_action=10 matches PlanViz's own default (agentMaxCounter,
+    # ticks per Forward/Rotate action) so the animation moves a full cell
+    # per action instead of a barely-visible fraction of one — see
+    # PlanVizExporter's docstring / export/AGENT.md.
+    exporter = PlanVizExporter(str(map_path), str(plan_path), ticks_per_action=10)
     engine = WorldEngine(grid, planner, dispatcher, exporter=exporter)
     engine.register_agent(agent)
 
