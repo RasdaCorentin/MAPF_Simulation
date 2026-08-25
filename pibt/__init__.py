@@ -9,6 +9,7 @@ from .pibt_core import run_pibt_pass
 from .priority_manager import PriorityManager
 from .reservation_table import ReservationTable
 from .one_shot_dispatcher import OneShotGoalDispatcher
+from .lifelong_orchestrator import LifelongGoalOrchestrator
 
 __all__ = [
     "PIBTPlanner", "GoalReachedPolicy",
@@ -16,4 +17,5 @@ __all__ = [
     "PriorityManager",
     "ReservationTable",
     "OneShotGoalDispatcher",
+    "LifelongGoalOrchestrator",
 ]
