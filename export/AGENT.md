@@ -52,8 +52,60 @@ spurious rotate action to reach its "declared" starting heading.
 inserted an extra `R`/`C` action, so the exported timeline can run longer than the number of
 WorldEngine ticks that produced it.
 
-⚠ **Verified against a real scenario, not PlanViz itself.** A 3x3 grid, agent `(0,0) -> (2,2)`
-under `PIBTPlanner(orientation=True)` was traced end to end and produces a correctly-encoded
-`F 2,C 1,F 2` (the path turns a corner, exercising the split). PlanViz was not installed in the
-environment this was built in (missing `pandas`) — the map/plan format is correct by
-construction, but nobody has looked at it rendered yet.
+⚠ **Verified against real PlanViz, not just traced by hand.** A 3x3 grid, agent `(0,0) -> (2,2)`
+under `PIBTPlanner(orientation=True)` — see `demo_planviz.py` — produces a correctly-encoded
+`F 20,C 10,F 20` (`ticks_per_action=10`; the path turns a corner, exercising the split) and loads
+into a real PlanViz install (`~/Inria/PlanViz`, `pip install -r requirements.txt` into a venv —
+not part of this repo) correctly enough to render the map and the static path.
+
+## Known gaps between a `core`/`pibt` run and PlanViz
+
+Two `_write_plan()` workarounds for real PlanViz-loader defects, found by loading actual exported
+output rather than guessing from the format doc:
+
+- **`tasks` can never legitimately be empty.** `plan_config.py`'s `load_sequential_tasks()` only
+  advances `max_seq_num` past its `-1` initial value by iterating a non-empty `"tasks"` list, and
+  `load_events()` asserts `max_seq_num > -1` **unconditionally** — even when `"events"` is also
+  empty, which it always is here (`core` has had no task/mission concept since `mrta` was
+  removed). Loading a genuinely task-free run crashed on that assert. Fixed by always writing one
+  zero-errand placeholder task, `[[0, 0, []]]`: satisfies the loader, `loc_num = len([])//2 = 0`
+  means it renders nothing.
+- **`agentMaxCounter` must be written explicitly, matching `ticks_per_action`.**
+  `get_ticks_per_timestep()` defaults to `10` when the key is absent and interpolates one cell of
+  motion across that many ticks; leaving `_ticks_per_action` at its own default of `1` without
+  also writing `agentMaxCounter: 1` meant PlanViz assumed 10 ticks per cell while the export only
+  ever supplied 1 — the agent visibly moved a few millimeters per action instead of a full cell,
+  confirmed by manual testing. `_write_plan()` now always writes
+  `"agentMaxCounter": self._ticks_per_action`, whatever that value is.
+
+Three more gaps found by clicking around in the real UI, **not fixable from `export/` alone** —
+each is either a second PlanViz-side defect or a direct structural consequence of `core`/`pibt`
+having no task concept, not a bug in this package:
+
+- **Play/Run crashes, and takes the rest of the transport controls down with it.** Pressing Play
+  runs `move_agents_per_timestep()` (`plan_viz.py:3790`), which indexes
+  `event_tracker["aTime"][event_tracker["aid"]]` with no bounds check. With zero real
+  assigned-task events, `aTime` is just the `[-1]` sentinel `load_events()` appends; on the very
+  first Play tick `cur_tstep` matches that `-1` by coincidence, `aid` increments to `1`, and the
+  next access is out of range. The crash happens *after* Play's callback has already disabled
+  Next/Prev/Restart/Go-to-timestep for the "running" state (mirroring the pattern at
+  `plan_viz.py:896-902`) but *before* it would re-enable them on pause — so the whole transport
+  freezes, not just auto-play. **Workaround: don't press Play.** Restarting PlanViz (not just the
+  loaded plan) is the only way to unstick the controls once this fires.
+- **Manual single-stepping is at raw execution-tick granularity, not per action.** Next/Prev
+  advance one execution tick, and one grid-cell move takes `agentMaxCounter` ticks (10, to render
+  visibly per the fix above) — a 6-cell path is on the order of 50-60 clicks with no "skip to next
+  action boundary" control in the UI. This is the direct cost of fixing the millimeters-per-click
+  problem above: the same granularity that makes motion *visible* also makes Next-only navigation
+  tedious. Nothing in `export/` can change this without either PlanViz adding a
+  skip-to-next-action control, or `core`/`pibt` gaining a real-time replanning loop with its own
+  meaningful sub-cell states to display (neither exists).
+- **Productivity shows nothing, ever — by construction, not a bug.** It plots
+  `self.pcf.events["finished"]` (`get_finished_throughput_counts_by_time()`,
+  `plan_viz.py:2389`), populated only from the JSON's `"events"` array. `_write_plan()` always
+  writes `"events": []`: there is no task/errand-completion concept anywhere in `core`/`pibt` to
+  report one from. Making Productivity show anything would mean deciding what a "task" or
+  "errand" *is* for a plain point-to-point `PathPlanner` run with no `MissionOrchestrator` — e.g.
+  synthesizing a fake completion event the moment an agent reaches its `OneShotGoalDispatcher`
+  goal — which is a design decision about `export/`'s scope, not a bug fix; see
+  `Class_Diagram/Export/` before writing any code for it.
