@@ -4,12 +4,12 @@ from .entities import Coordinates2D, manhattan_distance, WorldEntity, Orientatio
 from .environment import Grid2D
 from .engine import (
     PathPlanner, StepOutcome, AssignmentManifest,
-    MissionOrchestrator, WorldEngine,
+    MissionOrchestrator, Exporter, WorldEngine,
 )
 
 __all__ = [
     "Coordinates2D", "manhattan_distance", "WorldEntity", "Orientation", "Agent", "Objective",
     "Grid2D", "WorldEngine",
     "PathPlanner", "StepOutcome", "AssignmentManifest",
-    "MissionOrchestrator",
+    "MissionOrchestrator", "Exporter",
 ]
