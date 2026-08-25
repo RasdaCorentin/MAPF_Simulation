@@ -150,7 +150,14 @@ class PlanVizExporter(Exporter):
             "start": starts,
             "actualPaths": actual_paths,
             "plannerPaths": actual_paths,
-            "tasks": [], "events": [], "errors": [],
+            # PlanViz's own loader (plan_config.py) never sets max_seq_num
+            # above -1 when "tasks" is empty, and load_events() asserts
+            # max_seq_num > -1 unconditionally — even when "events" is
+            # also empty. core has no task/mission concept any more (mrta
+            # removed), so there is never a real task to report; this
+            # single zero-errand placeholder satisfies the loader without
+            # rendering anything (loc_num = len([])//2 = 0).
+            "tasks": [[0, 0, []]], "events": [], "errors": [],
         }
         with open(self._plan_path, "w") as f:
             json.dump(plan, f, indent=2)
