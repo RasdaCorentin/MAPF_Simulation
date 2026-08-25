@@ -2,14 +2,16 @@
 '  Annotated class diagram — self-contained (single file, no !include).
 '
 '  Scope: the pibt/ package — Priority Inheritance with Backtracking
-'  (Okumura et al., 2022), core/'s only dependent besides log/. Unlike
-'  Class_Diagram/Log/, this documents code that already exists and
-'  runs (python -m pibt.demo_one_shot) — catching the diagram up to
-'  the package, not the other way round. core/ classes it touches
-'  (PathPlanner, MissionOrchestrator, Agent, Grid2D, Coordinates2D,
-'  Orientation, StepOutcome, AssignmentManifest, Objective) are shown
-'  as stubs here; see Class_Diagram/class_diag_commented.puml for
-'  their real detail — this file does not repeat it.
+'  (Okumura et al., 2022), core/'s only dependent besides log/. This
+'  documents code that already exists and runs — python -m
+'  pibt.demo_one_shot for the one-shot regime, python -m
+'  pibt.demo_lifelong for the rotating-goal one — catching the diagram
+'  up to the package, not the other way round. core/ classes it
+'  touches (PathPlanner, MissionOrchestrator, Agent, Grid2D,
+'  Coordinates2D, Orientation, StepOutcome, AssignmentManifest,
+'  Objective) are shown as stubs here; see
+'  Class_Diagram/class_diag_commented.puml for their real detail —
+'  this file does not repeat it.
 '
 '  Regenerate with:
 '      plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml
@@ -161,6 +163,41 @@ package "pibt" #E8F5E9 {
       same fixed goal every tick, just enough to drive
       demo_one_shot.py. Not a general-purpose replacement.
     end note
+
+    class LifelongGoalOrchestrator {
+        - _goal_pool     : list[Coordinates2D]
+        - _current_goal  : dict[int, Coordinates2D]
+        - _priorities    : dict[int, float]
+        --
+        + assign_missions(agents: list[Agent], grid: Grid2D, step: int) : AssignmentManifest
+        - _next_goal(agent: Agent) : Coordinates2D
+    }
+    note bottom of LifelongGoalOrchestrator
+      **The rotating-goal counterpart to OneShotGoalDispatcher**
+      Where OneShotGoalDispatcher hands out one goal per agent for the
+      whole run, _next_goal() draws the next entry from _goal_pool the
+      instant an agent is found standing on its _current_goal — the
+      "lifelong" MAPF regime (goals never stop arriving) that
+      mrta/TaskDrivenOrchestrator used to serve, minus its
+      eligibility classes, allocation strategy and stall watchdog:
+      this is goal rotation only, not task allocation. Requires
+      PIBTPlanner's GoalReachedPolicy.TRANSIENT (the default) — an
+      agent demoted to -inf on arrival must be undemoted the instant
+      it is re-tasked, or it can never contest a cell again. See the
+      TRANSIENT branch of GoalReachedPolicy's own docstring, which
+      already names this regime. Drives python -m pibt.demo_lifelong.
+
+      ⚠ **Deliberately no watchdog, no eligibility, no pluggable
+      allocation strategy.** _next_goal() is the only matching policy —
+      FCFS by arrival order, popped straight from _goal_pool — and
+      there is no progress check behind it: an agent whose current
+      goal turns out unreachable is parked on it forever, the exact
+      deadlock mrta/TaskDrivenOrchestrator's patience/max_attempts
+      existed to close. Accepted here because _goal_pool is assumed to
+      contain only reachable positions; revisit (bringing back some
+      form of stall detection) the day a goal source can hand out one
+      that is not.
+    end note
 }
 
 ' ── Diamond convention ────────────────────────────────────────────
@@ -170,6 +207,7 @@ package "pibt" #E8F5E9 {
 
 PIBTPlanner --|> PathPlanner
 OneShotGoalDispatcher --|> MissionOrchestrator
+LifelongGoalOrchestrator --|> MissionOrchestrator
 
 ' Filled: PIBTPlanner creates and exclusively owns both — nothing else
 ' references this particular ReservationTable/PriorityManager.
@@ -188,6 +226,7 @@ PibtCore ..> PriorityManager : «reads/writes»
 
 PIBTPlanner ..> Orientation : «emits, if orientation=True»
 OneShotGoalDispatcher ..> Objective : «creates, attach_to()'s»
+LifelongGoalOrchestrator ..> Objective : «creates, attach_to()'s»
 
 ' =====================================================================
 '  Page-level legend — the 30-second read.
@@ -195,11 +234,17 @@ OneShotGoalDispatcher ..> Objective : «creates, attach_to()'s»
 legend bottom left
   **What this diagram covers**
   pibt/: a concrete PathPlanner (Priority Inheritance with
-  Backtracking) plus the minimal MissionOrchestrator that drives its
-  one-shot demo. Depends only on core/ — the same one-directional
-  shape as log/ — and knows nothing about any other PathPlanner.
-  This is the first thing in the repository that runs a full tick end
-  to end again: python -m pibt.demo_one_shot.
+  Backtracking) plus two minimal MissionOrchestrators built on it.
+  Depends only on core/ — the same one-directional shape as log/ —
+  and knows nothing about any other PathPlanner. OneShotGoalDispatcher
+  fixes one goal per agent for the whole run (python -m
+  pibt.demo_one_shot, the first thing in the repository to run a full
+  tick end to end); LifelongGoalOrchestrator rotates a shared goal
+  pool instead (python -m pibt.demo_lifelong) — the regime PIBT
+  already anticipated via GoalReachedPolicy, minus the eligibility
+  classes, allocation strategy and stall watchdog
+  mrta/TaskDrivenOrchestrator (removed) used to add on top; see its
+  own note for the trade-off.
 end legend
 
 @enduml

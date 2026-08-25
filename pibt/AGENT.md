@@ -43,8 +43,9 @@ parked on its goal is demoted to base priority `-inf` so it stops contesting cel
 need; `GoalReachedPolicy` (constructor argument) decides whether that demotion is undone once
 the agent leaves its goal:
 - `TRANSIENT` (default) — undone as soon as the agent leaves its goal. Mandatory under a
-  rotating-goal regime (`TaskDrivenOrchestrator`) — an agent that just finished a mission must
-  be able to contest a cell again.
+  rotating-goal regime (`LifelongGoalOrchestrator`, the current one; `mrta/TaskDrivenOrchestrator`
+  was the original, removed, see `TODO.md`) — an agent that just finished a mission must be able
+  to contest a cell again.
 - `PERMANENT` — never undone. Measurably better under a *static* goal regime
   (`OneShotGoalDispatcher`) — see the docstring on `GoalReachedPolicy` for the numbers.
 
@@ -73,3 +74,29 @@ First working end-to-end run: `python -m pibt.demo_one_shot`. Wires
 fixed goals, not `mrta` — and steps the engine until every agent reaches its goal or `MAX_STEPS`
 is hit. Three agents cross through the grid's center, so priority inheritance is exercised, not
 just three independent straight lines.
+
+### `LifelongGoalOrchestrator` — `pibt/lifelong_orchestrator.py`
+The other `MissionOrchestrator` this package provides: instead of one goal per agent for the
+whole run, `assign_missions()` draws the next entry from a shared, rotating `_goal_pool` the
+instant an agent is found standing on its `_current_goal` — `_next_goal()` pops from the front and
+pushes back at the end, so the pool never runs dry. Requires `PIBTPlanner`'s
+`GoalReachedPolicy.TRANSIENT` (the default): an agent demoted to `-inf` on arrival must be
+undemoted the instant it is re-tasked.
+
+Deliberately scoped down from `mrta/TaskDrivenOrchestrator` (removed, see `TODO.md`): no
+eligibility classes, no pluggable allocation strategy, no stall watchdog — `_next_goal()` is the
+only matching policy (FCFS by arrival order), with no progress check behind it. Two consequences
+accepted for now, not oversights:
+- nothing prevents two agents from being handed the same goal position;
+- an agent whose current goal turns out unreachable is parked on it forever — the exact deadlock
+  the watchdog's `patience`/`max_attempts` used to close.
+
+Both are safe only as long as `_goal_pool` holds exclusively reachable, non-colliding positions;
+see `diagrammes/Class_Diagram/Pibt/class_diag_commented.puml`'s note on this class for the full
+trade-off.
+
+### `demo_lifelong.py`
+`python -m pibt.demo_lifelong`. Wires `WorldEngine(grid, PIBTPlanner(), LifelongGoalOrchestrator(goal_pool))`
+and steps for a fixed number of ticks — there is no convergence state to stop at, goals keep
+rotating for as long as the run lasts. Three agents share a four-position goal pool on a small
+grid so the pool outlives any single agent's path.
