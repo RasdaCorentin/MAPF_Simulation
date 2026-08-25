@@ -6,6 +6,7 @@ from ..entities.position import Coordinates2D
 from ..entities.entity import WorldEntity
 from .coordinator import PathPlanner
 from .dispatcher import MissionOrchestrator
+from .exporter import Exporter
 from .dispatch_intent import AssignmentManifest
 from .plan_result import StepOutcome
 
@@ -19,7 +20,9 @@ class WorldEngine:
     ``coordinator.plan()``. An optional MissionOrchestrator (e.g. a
     TaskDrivenOrchestrator) is run at the start of each step to produce
     this tick's ``AssignmentManifest`` (goals/priorities), which is
-    passed to ``plan()`` — the planner is never mutated.
+    passed to ``plan()`` — the planner is never mutated. An optional
+    Exporter observes each tick's StepOutcome — it never influences the
+    tick, only watches it.
     """
 
     def __init__(
@@ -27,9 +30,11 @@ class WorldEngine:
         grid: Grid2D,
         planner: PathPlanner,
         orchestrator: Optional[MissionOrchestrator] = None,
+        exporter: Optional[Exporter] = None,
     ) -> None:
-        """Input: the grid, the (mandatory) coordination strategy, and an
-        optional mission orchestrator run before planning each step.
+        """Input: the grid, the (mandatory) coordination strategy, an
+        optional mission orchestrator run before planning each step, and
+        an optional exporter that observes each tick's StepOutcome.
         Output: None.
         """
         self.grid = grid
@@ -39,6 +44,7 @@ class WorldEngine:
         self.current_step = 0
         self.planner = planner
         self.orchestrator = orchestrator
+        self.exporter = exporter
         self.last_intent = AssignmentManifest()
 
     def register_agent(self, agent: Agent) -> None:
@@ -160,7 +166,21 @@ class WorldEngine:
             if new_orientation is not None:
                 agent.rotate_to(new_orientation)
 
+        # 8. Export (optional): hand the tick's outcome to a pure
+        # observer. Runs last, after every mutation, so it sees the
+        # agents in their final post-tick state.
+        if self.exporter is not None:
+            self.exporter.record(self.current_step, self.agents, self.grid, result)
+
         return result
+
+    def close(self) -> None:
+        """Input: none.
+        Output: None. Flushes the exporter, if attached — call once,
+        after the run ends, not per tick.
+        """
+        if self.exporter is not None:
+            self.exporter.flush()
 
     def __repr__(self) -> str:
         """Input: none. Output: short human-readable state summary."""
