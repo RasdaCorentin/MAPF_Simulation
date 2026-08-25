@@ -45,9 +45,12 @@ by name) — all four raise `ImportError` at the top-level import, see `TODO.md`
 `python -m pibt.demo_one_shot` wires a `Grid2D`, a few `Agent`s, `PIBTPlanner` and `pibt`'s own
 `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — gone, and `core` dropped its own
 `FixedGoalDispatcher` too, see `core/AGENT.md`) and steps the engine to convergence.
+`pibt/demo_lifelong.py` (`python -m pibt.demo_lifelong`) runs the other regime: `pibt`'s
+`LifelongGoalOrchestrator` rotates a shared goal pool instead of a fixed one per agent — see
+`pibt/AGENT.md`.
 
-There is currently **no test suite either**, and no working de-facto regression check beyond that
-one demo script. `core/` and `pibt/` both still import cleanly and their internals can be
+There is currently **no test suite either**, and no working de-facto regression check beyond those
+two demo scripts. `core/` and `pibt/` both still import cleanly and their internals can be
 exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring needed).
 
 ---
@@ -62,7 +65,8 @@ exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring nee
 │   └── engine/    — plan_result, dispatch_intent, coordinator, dispatcher, simulation
 │
 ├── pibt/          — Priority Inheritance with Backtracking, depends only on core -> pibt/AGENT.md
-│                    reservation_table, priority_manager, pibt_core, pibt_planner, demo_one_shot
+│                    reservation_table, priority_manager, pibt_core, pibt_planner,
+│                    one_shot_dispatcher, lifelong_orchestrator, demo_one_shot, demo_lifelong
 │
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
@@ -84,8 +88,8 @@ pibt -> core
 ```
 
 `pibt/PIBTPlanner` is a concrete `PathPlanner`; there is still nothing implementing
-`MissionOrchestrator` in `core/` itself (see `pibt/one_shot_dispatcher.py` for a local,
-package-scoped one) — see `TODO.md`.
+`MissionOrchestrator` in `core/` itself (see `pibt/one_shot_dispatcher.py` and
+`pibt/lifelong_orchestrator.py` for two local, package-scoped ones) — see `TODO.md`.
 
 ---
 
