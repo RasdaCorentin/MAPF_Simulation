@@ -107,7 +107,9 @@ legend bottom left
   no decorator class, WorldEngine already has the slot. Depends only
   on core/ — the same one-directional shape as pibt/ — and knows
   nothing about PIBT or any other concrete PathPlanner.
-  There is currently no code behind any of this — see TODO.md.
+  Verified end to end on a 3x3 grid, agent (0,0) -> (2,2) under
+  PIBTPlanner — see export/AGENT.md — but not against PlanViz itself,
+  not installed in the environment this was built in.
 end legend
 
 @enduml

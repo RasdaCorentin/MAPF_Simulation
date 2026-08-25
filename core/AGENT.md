@@ -201,15 +201,15 @@ class WorldEngine:
     _validate_plan(result)             # rejects an inapplicable plan BEFORE any mutation
 ```
 
-⚠ **`exporter`/`close()`/`Exporter` are diagram-only — no code behind them yet.** `Exporter`
-(`core/engine/exporter.py`, not yet written) is a third abstract seam alongside `PathPlanner` and
+`Exporter` (`core/engine/exporter.py`) is a third abstract seam alongside `PathPlanner` and
 `MissionOrchestrator`, but silent by default: `WorldEngine` works with `exporter=None`, and
 `advance_time_step()` simply skips the `record()` call when unset — unlike `planner`, this one is
 not mandatory. `record(step, agents, grid, outcome)` runs once per tick, after the move/rotate
 phases; `flush()` runs once, whenever the caller decides the run is over (`WorldEngine.close()`),
-not per tick. Concrete exporters (e.g. one producing a PlanViz-readable run) live in `export/`, a
-new dependent package with the same one-directional shape as `pibt/` — see
-`Class_Diagram/Export/`. A caller wanting a logged run just constructs
+not per tick. Concrete exporters live in `export/`, a dependent package with the same
+one-directional shape as `pibt/` — `PlanVizExporter` (`export/planviz_exporter.py`) is the one
+implementation so far, writing a run in the format PlanViz (League of Robot Runners) reads — see
+`Class_Diagram/Export/` and `export/AGENT.md`. A caller wanting a logged run just constructs
 `WorldEngine(grid, planner, exporter=SomeExporter(...))` directly; there is no decorator class.
 
 **`advance_time_step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared
@@ -225,7 +225,7 @@ against the already-incremented step (an entity with `appear_at=1` spawns on the
 # 6. Place: agent.move_to(target) then grid.place(agent)
 # 7. Rotate: agent.rotate_to(orientation) for every agent in result.orientations — no lift/place
 #    needed, orientation is not grid-indexed
-# 8. Export (optional, not yet implemented): self.exporter.record(current_step, agents, grid, result)
+# 8. Export (optional): self.exporter.record(current_step, agents, grid, result)
 #    if exporter is not None
 #    Return result — a caller reads diagnostics from it without importing the planner's package
 ```

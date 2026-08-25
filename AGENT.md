@@ -23,16 +23,18 @@ direction, the rules and the invariants. Everything about a specific class lives
 
 | Guide | Covers |
 |---|---|
-| [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `WorldEngine` — and the tick |
+| [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `Exporter`, `WorldEngine` — and the tick |
 | [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
+| [`export/AGENT.md`](export/AGENT.md) | `PlanVizExporter`, a concrete `Exporter` (writes a run for PlanViz) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough.
 
 `client/`, `report/`, `algo/` and `mrta/` are all gone as of this and earlier refactors — see
-`TODO.md` for exactly what that broke and why it was left broken rather than patched. `pibt/`
-restores one concrete `PathPlanner` from what `algo/` used to provide — see
-[`pibt/AGENT.md`](pibt/AGENT.md); it is `core/`'s only dependent right now.
+`TODO.md` for exactly what that broke and why it was left broken rather than patched. `pibt/` and
+`export/` are `core/`'s two dependents right now — `pibt/` restores one concrete `PathPlanner`
+from what `algo/` used to provide, `export/` supplies a concrete `Exporter`; neither depends on
+the other. See [`pibt/AGENT.md`](pibt/AGENT.md) and [`export/AGENT.md`](export/AGENT.md).
 
 ---
 
@@ -46,9 +48,13 @@ by name) — all four raise `ImportError` at the top-level import, see `TODO.md`
 `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — gone, and `core` dropped its own
 `FixedGoalDispatcher` too, see `core/AGENT.md`) and steps the engine to convergence.
 
+A run can be exported for PlanViz by attaching `export.PlanVizExporter` to the `WorldEngine`
+instead of just stepping it — see `export/AGENT.md`; `pibt/demo_one_shot.py` itself does not do
+this yet.
+
 There is currently **no test suite either**, and no working de-facto regression check beyond that
-one demo script. `core/` and `pibt/` both still import cleanly and their internals can be
-exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring needed).
+one demo script. `core/`, `pibt/` and `export/` all still import cleanly and their internals can
+be exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring needed).
 
 ---
 
@@ -64,6 +70,9 @@ exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring nee
 ├── pibt/          — Priority Inheritance with Backtracking, depends only on core -> pibt/AGENT.md
 │                    reservation_table, priority_manager, pibt_core, pibt_planner, demo_one_shot
 │
+├── export/        — concrete Exporters, depends only on core                   -> export/AGENT.md
+│                    planviz_exporter
+│
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
 ├── sim_many_pibt.py      — BROKEN: imported a concrete PathPlanner from algo/, removed — see TODO.md
@@ -77,15 +86,17 @@ exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring nee
 `experiments.csv` and `sim_results.csv` may sit at the root — gitignored outputs.
 
 **Dependency direction:** `core/` has no outgoing dependencies — a pure engine, no rendering or
-allocation coupling. `pibt/` is its only dependent right now:
+allocation coupling. `pibt/` and `export/` are its two dependents right now, neither depending on
+the other:
 
 ```
-pibt -> core
+pibt   -> core
+export -> core
 ```
 
-`pibt/PIBTPlanner` is a concrete `PathPlanner`; there is still nothing implementing
-`MissionOrchestrator` in `core/` itself (see `pibt/one_shot_dispatcher.py` for a local,
-package-scoped one) — see `TODO.md`.
+`pibt/PIBTPlanner` is a concrete `PathPlanner` and `export/PlanVizExporter` a concrete `Exporter`;
+there is still nothing implementing `MissionOrchestrator` in `core/` itself (see
+`pibt/one_shot_dispatcher.py` for a local, package-scoped one) — see `TODO.md`.
 
 ---
 
@@ -117,7 +128,7 @@ break it. When in doubt, the class diagram arbitrates.
   | `diagrammes/component_diagram.puml` | packages and the seams between them | `plantuml diagrammes/component_diagram.puml` |
   | `diagrammes/Class_Diagram/class_diag_simplified.puml` | the easiest-to-read rendering | `plantuml diagrammes/Class_Diagram/class_diag_simplified.puml` |
   | `diagrammes/Class_Diagram/Pibt/class_diag_commented.puml` | the `pibt/` package | `plantuml diagrammes/Class_Diagram/Pibt/class_diag_commented.puml` |
-  | `diagrammes/Class_Diagram/Export/class_diag_commented.puml` | the (not yet implemented) `export/` package | `plantuml diagrammes/Class_Diagram/Export/class_diag_commented.puml` |
+  | `diagrammes/Class_Diagram/Export/class_diag_commented.puml` | the `export/` package | `plantuml diagrammes/Class_Diagram/Export/class_diag_commented.puml` |
 
   Never edit the generated PNGs. There is no sequence diagram: `sequence_tick.puml` was dropped —
   the tick order it showed is stated on `WorldEngine` in the class diagram and in
