@@ -204,12 +204,17 @@ class WorldEngine:
 `Exporter` (`core/engine/exporter.py`) is a third abstract seam alongside `PathPlanner` and
 `MissionOrchestrator`, but silent by default: `WorldEngine` works with `exporter=None`, and
 `advance_time_step()` simply skips the `record()` call when unset — unlike `planner`, this one is
-not mandatory. `record(step, agents, grid, outcome)` runs once per tick, after the move/rotate
-phases; `flush()` runs once, whenever the caller decides the run is over (`WorldEngine.close()`),
-not per tick. Concrete exporters live in `export/`, a dependent package with the same
-one-directional shape as `pibt/` — `PlanVizExporter` (`export/planviz_exporter.py`) is the one
-implementation so far, writing a run in the format PlanViz (League of Robot Runners) reads — see
-`Class_Diagram/Export/` and `export/AGENT.md`. A caller wanting a logged run just constructs
+not mandatory. `record(step, agents, grid, outcome, intent)` runs once per tick, after the
+move/rotate phases; `intent` is the tick's `AssignmentManifest` (`self.last_intent`, the same
+object `planner.plan()` just consumed), passed so a concrete exporter can read goals per tick
+without them being fixed at construction — needed once goals rotate (a lifelong
+`MissionOrchestrator`), not just for a one-shot fixed goal set. `flush()` runs once, whenever the
+caller decides the run is over (`WorldEngine.close()`), not per tick. Concrete exporters live in
+`export/`, a dependent package with the same one-directional shape as `pibt/` —
+`TraceCsvExporter`, `AggregateCsvExporter` and `CompositeExporter`
+(`export/trace_csv_exporter.py`, `aggregate_csv_exporter.py`, `composite_exporter.py`) are the
+three implementations so far — see `Class_Diagram/Export/` and `export/AGENT.md`. A caller wanting
+a logged run just constructs
 `WorldEngine(grid, planner, exporter=SomeExporter(...))` directly; there is no decorator class.
 
 **`advance_time_step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared
@@ -225,7 +230,7 @@ against the already-incremented step (an entity with `appear_at=1` spawns on the
 # 6. Place: agent.move_to(target) then grid.place(agent)
 # 7. Rotate: agent.rotate_to(orientation) for every agent in result.orientations — no lift/place
 #    needed, orientation is not grid-indexed
-# 8. Export (optional): self.exporter.record(current_step, agents, grid, result)
+# 8. Export (optional): self.exporter.record(current_step, agents, grid, result, intent)
 #    if exporter is not None
 #    Return result — a caller reads diagnostics from it without importing the planner's package
 ```

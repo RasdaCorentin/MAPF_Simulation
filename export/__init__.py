@@ -2,6 +2,8 @@
 never the reverse; core does not know this package exists.
 """
 
-from .planviz_exporter import PlanVizExporter
+from .trace_csv_exporter import TraceCsvExporter
+from .aggregate_csv_exporter import AggregateCsvExporter
+from .composite_exporter import CompositeExporter
 
-__all__ = ["PlanVizExporter"]
+__all__ = ["TraceCsvExporter", "AggregateCsvExporter", "CompositeExporter"]

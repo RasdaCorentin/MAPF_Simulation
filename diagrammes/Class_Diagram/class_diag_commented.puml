@@ -152,7 +152,7 @@ package "core" #EAF4FF {
         end note
 
         abstract class Exporter <<Strategy>> {
-            + {abstract} record(step: int, agents: list[Agent], grid: Grid2D, outcome: StepOutcome) : void
+            + {abstract} record(step: int, agents: list[Agent], grid: Grid2D, outcome: StepOutcome, intent: AssignmentManifest) : void
             + {abstract} flush() : void
         }
         note bottom of Exporter
@@ -161,9 +161,14 @@ package "core" #EAF4FF {
           without one — exporter defaults to None, and advance_time_step()
           simply skips the call when it is unset. record() runs once per
           tick, after the move phase; flush() runs once, whenever the
-          caller decides the run is over (WorldEngine.close()). Concrete
-          exporters (e.g. one exporting a run for PlanViz) live outside
-          core, one dependency level up — see Class_Diagram/Export/.
+          caller decides the run is over (WorldEngine.close()). record()
+          also receives the tick's AssignmentManifest — the same intent
+          planner.plan() just consumed — so a concrete exporter can read
+          who wanted to go where even when goals rotate tick to tick
+          (a lifelong MissionOrchestrator), not only a goal set fixed at
+          construction. Concrete exporters (e.g. one logging a run to
+          CSV) live outside core, one dependency level up — see
+          Class_Diagram/Export/.
         end note
 
         class WorldEngine {
@@ -188,8 +193,8 @@ package "core" #EAF4FF {
             1. **assign missions** — ask the MissionOrchestrator where each agent goes
             2. **plan**            — ask the PathPlanner how to move them there
             3. **move**            — apply the plan to the grid
-            4. **export** (optional) — hand the tick's StepOutcome to
-               exporter.record(), if one is attached
+            4. **export** (optional) — hand the tick's StepOutcome and
+               AssignmentManifest to exporter.record(), if one is attached
           Because the engine owns that order, goals can never be stale
           and a caller cannot plan before assigning missions. All agents
           move inside one transaction, so two of them can swap cells
@@ -263,6 +268,7 @@ PathPlanner ..> StepOutcome : «returns»
 PathPlanner ..> AssignmentManifest : «reads»
 MissionOrchestrator ..> AssignmentManifest : «returns»
 Exporter ..> StepOutcome : «reads»
+Exporter ..> AssignmentManifest : «reads»
 
 ' =====================================================================
 '  Page-level legend — the 30-second read.
@@ -275,9 +281,8 @@ legend bottom left
   seam through which it plugged in is all that remains, with no concrete
   implementation today. pibt/PIBTPlanner is a concrete PathPlanner —
   see Class_Diagram/Pibt/ — the first thing that runs a full tick end
-  to end (python -m pibt.demo_one_shot). export/PlanVizExporter is a
-  concrete Exporter — see Class_Diagram/Export/ — writing a run in the
-  format PlanViz reads.
+  to end (python -m pibt.demo_one_shot). export/ supplies three
+  concrete Exporters, all logging to CSV — see Class_Diagram/Export/.
 end legend
 
 @enduml

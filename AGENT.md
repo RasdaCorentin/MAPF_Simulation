@@ -25,7 +25,7 @@ direction, the rules and the invariants. Everything about a specific class lives
 |---|---|
 | [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `Exporter`, `WorldEngine` — and the tick |
 | [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
-| [`export/AGENT.md`](export/AGENT.md) | `PlanVizExporter`, a concrete `Exporter` (writes a run for PlanViz) |
+| [`export/AGENT.md`](export/AGENT.md) | `TraceCsvExporter`/`AggregateCsvExporter`/`CompositeExporter`, concrete `Exporter`s (log a run's trace and/or its summary to `log/*.csv`) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough.
@@ -51,8 +51,11 @@ by name) — all four raise `ImportError` at the top-level import, see `TODO.md`
 `LifelongGoalOrchestrator` rotates a shared goal pool instead of a fixed one per agent — see
 `pibt/AGENT.md`.
 
-A run can be exported for PlanViz by attaching `export.PlanVizExporter` to the `WorldEngine`
-instead of just stepping it — see `export/AGENT.md`; neither demo script does this yet.
+A run can be logged to CSV by attaching an `export.Exporter` to the `WorldEngine` instead of just
+stepping it — `demo_trace_log.py` writes a per-tick trace under `log/trace/`, `demo_aggregate_log.py`
+runs the scenario three times through `CompositeExporter` and appends three rows to
+`log/aggregate.csv`; see `export/AGENT.md`. Neither `pibt/demo_one_shot.py` nor
+`pibt/demo_lifelong.py` does this yet.
 
 There is currently **no test suite either**, and no working de-facto regression check beyond those
 two demo scripts. `core/`, `pibt/` and `export/` all still import cleanly and their internals can
@@ -74,7 +77,7 @@ be exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring 
 │                    one_shot_dispatcher, lifelong_orchestrator, demo_one_shot, demo_lifelong
 │
 ├── export/        — concrete Exporters, depends only on core                   -> export/AGENT.md
-│                    planviz_exporter
+│                    trace_csv_exporter, aggregate_csv_exporter, composite_exporter
 │
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
@@ -97,10 +100,10 @@ pibt   -> core
 export -> core
 ```
 
-`pibt/PIBTPlanner` is a concrete `PathPlanner` and `export/PlanVizExporter` a concrete `Exporter`;
-there is still nothing implementing `MissionOrchestrator` in `core/` itself (see
-`pibt/one_shot_dispatcher.py` and `pibt/lifelong_orchestrator.py` for two local, package-scoped
-ones) — see `TODO.md`.
+`pibt/PIBTPlanner` is a concrete `PathPlanner` and `export/TraceCsvExporter` (among others) a
+concrete `Exporter`; there is still nothing implementing `MissionOrchestrator` in `core/` itself
+(see `pibt/one_shot_dispatcher.py` and `pibt/lifelong_orchestrator.py` for two local,
+package-scoped ones) — see `TODO.md`.
 
 ---
 
