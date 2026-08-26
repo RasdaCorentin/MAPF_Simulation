@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-demo_csv_log.py — runs one PIBT scenario and logs every tick to a CSV
-file under log/.
+demo_trace_log.py — runs one PIBT scenario and logs every tick to a CSV
+trace file under log/trace/.
 
 Same 3x3 scenario used to exercise the exporter seam before: a single
 agent going (0,0) -> (2,2) under PIBTPlanner(orientation=True).
 
 Run with:
-    python3 demo_csv_log.py
+    python3 demo_trace_log.py
 """
 
+from datetime import datetime
 from pathlib import Path
 
 from core import Agent, Coordinates2D, Grid2D, WorldEngine
-from export import CsvExporter
+from export import TraceCsvExporter
 from pibt import GoalReachedPolicy, OneShotGoalDispatcher, PIBTPlanner
 
 GRID_SIZE = 3
@@ -21,17 +22,17 @@ START = Coordinates2D(0, 0)
 GOAL = Coordinates2D(2, 2)
 MAX_STEPS = 20
 
-OUT_DIR = Path(__file__).parent / "log"
+OUT_DIR = Path(__file__).parent / "log" / "trace"
 
 
 def main() -> None:
-    csv_path = OUT_DIR / "demo_3x3.csv"
+    csv_path = OUT_DIR / f"{datetime.now():%Y-%m-%d_%H%M%S}.csv"
 
     grid = Grid2D(GRID_SIZE, GRID_SIZE)
     agent = Agent(0, START)
     dispatcher = OneShotGoalDispatcher({0: GOAL})
     planner = PIBTPlanner(goal_reached_policy=GoalReachedPolicy.PERMANENT, orientation=True)
-    exporter = CsvExporter(str(csv_path))
+    exporter = TraceCsvExporter(str(csv_path))
     engine = WorldEngine(grid, planner, dispatcher, exporter=exporter)
     engine.register_agent(agent)
 
