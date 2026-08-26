@@ -9,7 +9,7 @@
 '  supplies the concrete side only, the same shape as pibt/ supplying
 '  a concrete PathPlanner: depends on core/, core/ does not know it
 '  exists. core/ classes referenced here (WorldEngine, Exporter, Agent,
-'  Grid2D, StepOutcome) are shown as stubs; see
+'  AssignmentManifest) are shown as stubs; see
 '  Class_Diagram/class_diag_commented.puml for their real detail.
 '
 '  Regenerate with:
@@ -42,8 +42,7 @@ package "core (stubs)" #EAF4FF {
     class WorldEngine
     abstract class Exporter
     class Agent
-    class Grid2D
-    class StepOutcome
+    class AssignmentManifest
 }
 
 ' =====================================================================
@@ -51,47 +50,88 @@ package "core (stubs)" #EAF4FF {
 ' =====================================================================
 package "export" #FFF3E0 {
 
-    class CsvExporter {
+    class TraceCsvExporter {
         - _csv_path : Path
         - _rows     : list[tuple]
         --
-        + record(step, agents, grid, outcome) : void
+        + rows() : list[tuple]
+        + record(step, agents, grid, outcome, intent) : void
         + flush() : void
     }
-    note bottom of CsvExporter
-      **The concrete reason this package exists**
-      Accumulates (step, agent_id, x, y, orientation) per agent per
-      tick in memory; flush() writes it as one flat CSV — a header row
-      plus one row per agent per tick — to the path given at
-      construction, creating parent directories on demand (e.g.
-      "log/run.csv"). No external viewer format to satisfy: the
-      columns are core's own axes and Orientation.name verbatim,
-      nothing transposed or re-encoded.
+    note bottom of TraceCsvExporter
+      **Per-tick trace, and AggregateCsvExporter's data source**
+      One row per agent per tick: step, agent_id, x, y, orientation,
+      read off `agents` alone. rows() exposes them read-only so
+      AggregateCsvExporter reuses this instead of re-reading agents.
+      Ignores grid, outcome and intent.
+    end note
 
-      The only concrete Exporter today — SqlExporter is a documented
-      future sibling, not yet written.
+    class AggregateCsvExporter {
+        - _csv_path : Path
+        - _trace    : TraceCsvExporter
+        - _goals    : dict[tuple, Coordinates2D]
+        --
+        + record(step, agents, grid, outcome, intent) : void
+        + flush() : void
+    }
+    note bottom of AggregateCsvExporter
+      **Per-run summary, appended**
+      record() only reads intent.goals, keyed by (step, agent_id) —
+      not fixed at construction, so a rotating goal (lifelong) still
+      counts a fresh arrival per assignment. flush() pairs that with
+      _trace.rows() for position, then appends one row (date,
+      n_agents, ticks, success_rate, makespan, deadlocks) to a
+      shared CSV instead of overwriting it.
+    end note
+
+    class CompositeExporter {
+        - _exporters : list[Exporter]
+        --
+        + record(step, agents, grid, outcome, intent) : void
+        + flush() : void
+    }
+    note bottom of CompositeExporter
+      **Fan-out, not a new seam**
+      Wraps several Exporters behind one — WorldEngine.exporter
+      still holds exactly one object. Forwards record()/flush() to
+      each, so one run can feed both TraceCsvExporter and
+      AggregateCsvExporter.
     end note
 }
 
-CsvExporter --|> Exporter
+TraceCsvExporter --|> Exporter
+AggregateCsvExporter --|> Exporter
+CompositeExporter --|> Exporter
 
-CsvExporter ..> Agent : «reads»
-CsvExporter ..> Grid2D : «reads»
-CsvExporter ..> StepOutcome : «reads»
+TraceCsvExporter ..> Agent : «reads»
+
+AggregateCsvExporter ..> AssignmentManifest : «reads»
+
+' Hollow: AggregateCsvExporter is handed a TraceCsvExporter the caller
+' also owns (and may attach separately, e.g. inside the same
+' CompositeExporter) — a shared reference, not an exclusive one, same
+' reasoning as CompositeExporter -> Exporter just below. Both exporters
+' still see every tick independently via record(); the coupling only
+' matters at flush() time, once _trace.rows() is complete.
+AggregateCsvExporter "1" o-- "1" TraceCsvExporter : _trace
+
+' Hollow: CompositeExporter is handed already-constructed exporters and
+' holds references to them — the same "shared, not owned" shape as
+' WorldEngine o-- Exporter in the main diagram, not an exclusive-owner
+' composition.
+CompositeExporter "1" o-- "1..*" Exporter : _exporters
 
 ' =====================================================================
 '  Page-level legend — the 30-second read.
 ' =====================================================================
 legend bottom left
   **What this diagram covers**
-  export/: concrete Exporters plugged into WorldEngine.exporter. A
-  caller wanting a logged run constructs
-  WorldEngine(grid, planner, exporter=CsvExporter(...)) directly —
-  no decorator class, WorldEngine already has the slot. Depends only
-  on core/ — the same one-directional shape as pibt/ — and knows
-  nothing about PIBT or any other concrete PathPlanner.
-  Verified end to end on a 3x3 grid, agent (0,0) -> (2,2) under
-  PIBTPlanner — see export/AGENT.md and demo_csv_log.py.
+  export/: concrete Exporters plugged into WorldEngine.exporter.
+  TraceCsvExporter logs the raw per-tick trace; AggregateCsvExporter
+  reuses it (_trace) instead of re-reading agents, so position data
+  is read once, not duplicated. CompositeExporter fans record()/
+  flush() out to both. Depends only on core/, the same one-directional
+  shape as pibt/.
 end legend
 
 @enduml
