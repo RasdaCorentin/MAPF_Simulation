@@ -207,9 +207,10 @@ class WorldEngine:
 not mandatory. `record(step, agents, grid, outcome)` runs once per tick, after the move/rotate
 phases; `flush()` runs once, whenever the caller decides the run is over (`WorldEngine.close()`),
 not per tick. Concrete exporters live in `export/`, a dependent package with the same
-one-directional shape as `pibt/` — `PlanVizExporter` (`export/planviz_exporter.py`) is the one
-implementation so far, writing a run in the format PlanViz (League of Robot Runners) reads — see
-`Class_Diagram/Export/` and `export/AGENT.md`. A caller wanting a logged run just constructs
+one-directional shape as `pibt/` — `CsvExporter` (`export/csv_exporter.py`) is the one
+implementation so far, writing a run's per-tick `(position, orientation)` history to a plain CSV
+under `log/` — see `Class_Diagram/Export/` and `export/AGENT.md`. A caller wanting a logged run
+just constructs
 `WorldEngine(grid, planner, exporter=SomeExporter(...))` directly; there is no decorator class.
 
 **`advance_time_step()` logic** — `current_step += 1` runs **first**, so `appear_at` is compared
