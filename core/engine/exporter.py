@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..entities.agent import Agent
     from ..environment.grid import Grid2D
+    from .dispatch_intent import AssignmentManifest
     from .plan_result import StepOutcome
 
 
@@ -27,10 +28,13 @@ class Exporter(ABC):
         agents: list["Agent"],
         grid: "Grid2D",
         outcome: "StepOutcome",
+        intent: "AssignmentManifest",
     ) -> None:
         """Input: the step just applied, all simulated agents (already
-        moved/rotated), the grid, and the StepOutcome that produced this
-        state.
+        moved/rotated), the grid, the StepOutcome that produced this
+        state, and the AssignmentManifest planner.plan() consumed this
+        tick (goals/priorities) — the same object WorldEngine.last_intent
+        holds, not a copy.
         Output: None. Called once per tick by WorldEngine.advance_time_step(),
         after the move and rotate phases.
         """

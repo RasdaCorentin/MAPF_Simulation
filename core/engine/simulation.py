@@ -170,7 +170,7 @@ class WorldEngine:
         # observer. Runs last, after every mutation, so it sees the
         # agents in their final post-tick state.
         if self.exporter is not None:
-            self.exporter.record(self.current_step, self.agents, self.grid, result)
+            self.exporter.record(self.current_step, self.agents, self.grid, result, intent)
 
         return result
 
