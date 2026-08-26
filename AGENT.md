@@ -25,7 +25,7 @@ direction, the rules and the invariants. Everything about a specific class lives
 |---|---|
 | [`core/AGENT.md`](core/AGENT.md) | `Coordinates2D`, `WorldEntity`, `Orientation`, `Agent`, `Objective`, `Grid2D`, `StepOutcome`, `AssignmentManifest`, `PathPlanner`, `MissionOrchestrator`, `Exporter`, `WorldEngine` — and the tick |
 | [`pibt/AGENT.md`](pibt/AGENT.md) | `PIBTPlanner`, a concrete `PathPlanner` (Priority Inheritance with Backtracking) |
-| [`export/AGENT.md`](export/AGENT.md) | `CsvExporter`, a concrete `Exporter` (logs a run to `log/*.csv`) |
+| [`export/AGENT.md`](export/AGENT.md) | `TraceCsvExporter`/`AggregateCsvExporter`/`CompositeExporter`, concrete `Exporter`s (log a run's trace and/or its summary to `log/*.csv`) |
 | [`diagrammes/AGENT.md`](diagrammes/AGENT.md) | the binding rule for changing a diagram — read it before touching one |
 
 **Working on one package?** Root + that guide is enough.
@@ -48,9 +48,10 @@ by name) — all four raise `ImportError` at the top-level import, see `TODO.md`
 `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — gone, and `core` dropped its own
 `FixedGoalDispatcher` too, see `core/AGENT.md`) and steps the engine to convergence.
 
-A run can be logged to CSV by attaching `export.CsvExporter` to the `WorldEngine` instead of just
-stepping it — `demo_csv_log.py` (`python3 demo_csv_log.py`) does exactly that and writes
-`log/demo_3x3.csv`; see `export/AGENT.md`. `pibt/demo_one_shot.py` itself does not do this yet.
+A run can be logged to CSV by attaching an `export.Exporter` to the `WorldEngine` instead of just
+stepping it — `demo_trace_log.py` writes a per-tick trace under `log/trace/`, `demo_aggregate_log.py`
+runs the scenario three times through `CompositeExporter` and appends three rows to
+`log/aggregate.csv`; see `export/AGENT.md`. `pibt/demo_one_shot.py` itself does not do this yet.
 
 There is currently **no test suite either**, and no working de-facto regression check beyond that
 one demo script. `core/`, `pibt/` and `export/` all still import cleanly and their internals can
@@ -71,7 +72,7 @@ be exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring 
 │                    reservation_table, priority_manager, pibt_core, pibt_planner, demo_one_shot
 │
 ├── export/        — concrete Exporters, depends only on core                   -> export/AGENT.md
-│                    csv_exporter
+│                    trace_csv_exporter, aggregate_csv_exporter, composite_exporter
 │
 ├── diagrammes/    — PlantUML sources + PNGs; script_perso.sh watches and regenerates -> diagrammes/AGENT.md
 ├── main.py               — BROKEN: imported client.control/report, both removed — see TODO.md
@@ -94,8 +95,8 @@ pibt   -> core
 export -> core
 ```
 
-`pibt/PIBTPlanner` is a concrete `PathPlanner` and `export/CsvExporter` a concrete `Exporter`;
-there is still nothing implementing `MissionOrchestrator` in `core/` itself (see
+`pibt/PIBTPlanner` is a concrete `PathPlanner` and `export/TraceCsvExporter` (among others) a
+concrete `Exporter`; there is still nothing implementing `MissionOrchestrator` in `core/` itself (see
 `pibt/one_shot_dispatcher.py` for a local, package-scoped one) — see `TODO.md`.
 
 ---
