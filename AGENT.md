@@ -37,7 +37,7 @@ otherwise.
 **Two companion files are binding and are *not* reproduced here:**
 - **`CONVENTION.md`** — repository layout, branch naming, and Conventional Commits. Every commit,
   file name and new file must follow it. Read it before your first commit.
-- **`README.md` / `GUIDE.md`** — human-facing overview and guided tour.
+- **`README.md`** — human-facing overview, install, run.
 
 The reference for architecture is the class diagram: when this file, the code and the diagram
 disagree, **the diagram arbitrates** — see *Rules and invariants*. It is imported below so it is
@@ -115,7 +115,7 @@ be exercised directly (construct a `Grid2D`/`Agent` by hand, no scenario wiring 
 ├── sim_many_pibt.py      — BROKEN: imported a concrete PathPlanner from algo/, removed — see TODO.md
 ├── sim_many_lacam.py     — BROKEN: same reason — see TODO.md
 ├── sim_many_pibt_plus.py — BROKEN: same reason — see TODO.md
-├── TODO.md · README.md · GUIDE.md · CONVENTION.md · CLAUDE.md
+├── TODO.md · README.md · CONVENTION.md · CLAUDE.md
 └── requirements.txt · LICENSE
 ```
 

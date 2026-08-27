@@ -14,8 +14,7 @@ Folder and file names are in English.
 ├── .gitignore
 ├── LICENSE
 ├── requirements.txt
-├── README.md            — human-facing overview
-├── GUIDE.md             — guided tour of the project
+├── README.md            — human-facing overview, install, run
 ├── AGENT.md             — full architecture reference for coding agents
 ├── CLAUDE.md            — pointer that imports AGENT.md
 ├── CONVENTION.md        — this file
