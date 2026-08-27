@@ -1,5 +1,36 @@
 # AGENT.md
 
+## Installing this repo into another project
+
+If you are a coding agent working in a *different* repository and want to use this engine
+there — not edit it here — add it as a pip dependency, no local checkout of this repo
+required:
+
+```bash
+pip install "mapf-simulation @ git+ssh://git@github.com/RasdaCorentin/MAPF_Simulation.git@develop"
+```
+
+(swap for `git+https://github.com/RasdaCorentin/MAPF_Simulation.git@develop` if the caller
+has no SSH key configured for this remote). This installs two top-level packages:
+
+- **`core`** — the pure engine: `WorldEngine`, `Grid2D`, `Agent`, `Coordinates2D`,
+  `Orientation`, `WorldEntity`, `Objective`, `StepOutcome`, `AssignmentManifest`, and the two
+  abstractions a caller implements or consumes: `PathPlanner` and `MissionOrchestrator`.
+- **`pibt`** — a concrete `PathPlanner` (`PIBTPlanner`, Priority Inheritance with
+  Backtracking) plus two concrete `MissionOrchestrator`s: `OneShotGoalDispatcher` (one fixed
+  goal per agent for the whole run) and `LifelongGoalOrchestrator` (one externally-settable
+  target per agent via `set_target(agent_id, position)` — the shape an event- or
+  click-driven caller needs).
+
+`export/` (CSV run logging) is **not** part of the installable package yet — the root
+`pyproject.toml` only packages `core*`/`pibt*`. Requires Python 3.10+; no runtime
+dependencies. Read `pibt/AGENT.md` for what each `pibt` class actually does — in particular
+`LifelongGoalOrchestrator`'s note on what it deliberately does not do (no eligibility, no
+watchdog, no collision check across targets) — before wiring it into a caller that assumes
+otherwise.
+
+---
+
 > **This is the project map for coding agents. Start here, then read the guide for the package
 > you are about to touch. Do not re-explore the tree to answer structural questions.**
 
