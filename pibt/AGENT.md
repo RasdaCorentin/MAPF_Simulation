@@ -77,26 +77,31 @@ just three independent straight lines.
 
 ### `LifelongGoalOrchestrator` — `pibt/lifelong_orchestrator.py`
 The other `MissionOrchestrator` this package provides: instead of one goal per agent for the
-whole run, `assign_missions()` draws the next entry from a shared, rotating `_goal_pool` the
-instant an agent is found standing on its `_current_goal` — `_next_goal()` pops from the front and
-pushes back at the end, so the pool never runs dry. Requires `PIBTPlanner`'s
-`GoalReachedPolicy.TRANSIENT` (the default): an agent demoted to `-inf` on arrival must be
-undemoted the instant it is re-tasked.
+whole run, it holds one mutable target slot per agent (`_target: dict[int, Coordinates2D | None]`)
+set from outside via `set_target(agent_id, position)` — the caller that owns the goal source (an
+operator click, translated by `sim_dotbot_mrta.py`'s `ManualClickTranslator`, the use case this
+class actually serves) decides what an agent's next target is, not this class. `assign_missions()`
+only reflects the current slot state into an `AssignmentManifest`: an agent with a set target emits
+an `Objective`; an agent found standing on its target has its slot cleared to `None` and is omitted
+from `goals` — it stays parked until `set_target()` is called again, which a re-click satisfies by
+simply overwriting the slot. Requires `PIBTPlanner`'s `GoalReachedPolicy.TRANSIENT` (the default):
+an agent demoted to `-inf` on arrival must be undemoted the instant it is re-targeted.
 
 Deliberately scoped down from `mrta/TaskDrivenOrchestrator` (removed, see `TODO.md`): no
-eligibility classes, no pluggable allocation strategy, no stall watchdog — `_next_goal()` is the
-only matching policy (FCFS by arrival order), with no progress check behind it. Two consequences
-accepted for now, not oversights:
-- nothing prevents two agents from being handed the same goal position;
-- an agent whose current goal turns out unreachable is parked on it forever — the exact deadlock
-  the watchdog's `patience`/`max_attempts` used to close.
+eligibility classes, no pluggable allocation strategy, no stall watchdog, no collision check across
+targets. Two consequences accepted for now, not oversights:
+- nothing prevents two agents from being set to the same target position — rejecting that is an
+  operator-input concern (`ManualClickTranslator`/`MRTASession`), not this class's job;
+- an agent whose target turns out unreachable is parked on it forever — the exact deadlock the
+  watchdog's `patience`/`max_attempts` used to close.
 
-Both are safe only as long as `_goal_pool` holds exclusively reachable, non-colliding positions;
-see `diagrammes/Class_Diagram/Pibt/class_diag_commented.puml`'s note on this class for the full
+See `diagrammes/Class_Diagram/Pibt/class_diag_commented.puml`'s note on this class for the full
 trade-off.
 
 ### `demo_lifelong.py`
-`python -m pibt.demo_lifelong`. Wires `WorldEngine(grid, PIBTPlanner(), LifelongGoalOrchestrator(goal_pool))`
-and steps for a fixed number of ticks — there is no convergence state to stop at, goals keep
-rotating for as long as the run lasts. Three agents share a four-position goal pool on a small
-grid so the pool outlives any single agent's path.
+`python -m pibt.demo_lifelong`. Wires `WorldEngine(grid, PIBTPlanner(), LifelongGoalOrchestrator())`
+and steps for a fixed number of ticks — there is no convergence state to stop at. There is no real
+`ManualClickTranslator` here to drive the orchestrator, so the demo plays that role itself: whenever
+an agent is found standing on the target it was last given, the demo calls `set_target()` again
+with the next position from a small rotating pool, simulating an operator clicking that bot's next
+target the instant it arrives.

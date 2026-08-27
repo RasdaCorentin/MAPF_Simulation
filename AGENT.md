@@ -48,8 +48,8 @@ by name) — all four raise `ImportError` at the top-level import, see `TODO.md`
 `OneShotGoalDispatcher` (one-shot fixed goals, not `mrta` — gone, and `core` dropped its own
 `FixedGoalDispatcher` too, see `core/AGENT.md`) and steps the engine to convergence.
 `pibt/demo_lifelong.py` (`python -m pibt.demo_lifelong`) runs the other regime: `pibt`'s
-`LifelongGoalOrchestrator` rotates a shared goal pool instead of a fixed one per agent — see
-`pibt/AGENT.md`.
+`LifelongGoalOrchestrator` holds one externally-settable target per agent instead of a fixed goal
+for the whole run — see `pibt/AGENT.md`.
 
 A run can be logged to CSV by attaching an `export.Exporter` to the `WorldEngine` instead of just
 stepping it — `demo_trace_log.py` writes a per-tick trace under `log/trace/`, `demo_aggregate_log.py`
